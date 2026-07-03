@@ -1,0 +1,18 @@
+{
+  "name": "city-empire-modern-metropolis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "City Empire: Modern Metropolis - a city-builder simulation built with Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
