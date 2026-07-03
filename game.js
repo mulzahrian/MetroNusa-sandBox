@@ -5,57 +5,527 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// ==================== SETTINGS & LANGUAGE ====================
+const _DEF_SETTINGS = { lang: 'id', sound: true };
+const _SET = (() => {
+  try { return Object.assign({}, _DEF_SETTINGS, JSON.parse(localStorage.getItem('city-settings') || '{}')); }
+  catch(e){ return Object.assign({}, _DEF_SETTINGS); }
+})();
+function saveSET(){ localStorage.setItem('city-settings', JSON.stringify(_SET)); }
+
+// Language strings -- add more keys here as needed
+const LANG = {
+  en: {
+    new_game: 'New Game',       continue: 'Continue',
+    sandbox:  'Sandbox Mode',   scenario: 'Scenario Mode',
+    multi:    'Multiplayer',    settings: 'Settings',
+    settings_title: 'Settings',
+    lang_label: 'Language',     lang_en: 'English', lang_id: 'Indonesian',
+    sound_label: 'Sound',       sound_on: 'On',     sound_off: 'Off',
+    close: 'Close',
+    version: 'v1.0 -- Alpha',
+    subtitle: 'Modern Metropolis',
+  },
+  id: {
+    new_game: 'Game Baru',      continue: 'Lanjutkan',
+    sandbox:  'Mode Bebas',     scenario: 'Mode Skenario',
+    multi:    'Multipemain',    settings: 'Pengaturan',
+    settings_title: 'Pengaturan',
+    lang_label: 'Bahasa',       lang_en: 'Inggris',  lang_id: 'Indonesia',
+    sound_label: 'Suara',       sound_on: 'Aktif',   sound_off: 'Nonaktif',
+    close: 'Tutup',
+    version: 'v1.0 -- Alfa',
+    subtitle: 'Metropolis Modern',
+  },
+};
+// Shorthand: LT('key') returns string in current language
+function LT(key){ return (LANG[_SET.lang] || LANG.id)[key] || key; }
+
 // -------------------- CONFIG --------------------
-const GRID = 40;          // grid size NxN
+const GRID = 100;          // grid size NxN (max purchasable map area)
 const TILE = 2;           // world units per tile
 const HALF = (GRID * TILE) / 2;
 
+// ===== PIXEL ART ICON SYSTEM =====
+const _P={'_':null,'0':'#000','1':'#111','D':'#444','d':'#555','G':'#888','g':'#aaa','W':'#fff','w':'#ddd','Y':'#ffe600','y':'#aa9900','R':'#ff4444','r':'#882222','B':'#44aaff','b':'#2244bb','C':'#00e5ff','c':'#006688','P':'#cc44ff','p':'#660099','O':'#ff8800','o':'#884400','N':'#00dd66','n':'#006633','T':'#cc9966','t':'#886633','K':'#553311','k':'#221100','S':'#88ccff','s':'#3366aa','M':'#ff44cc','m':'#880066','L':'#88ff00','l':'#448800','E':'#ffff44','e':'#888800','A':'#ff9944','a':'#cc6600','Q':'#00ffff','q':'#008888','V':'#55ee88','v':'#227744','F':'#ff6644','f':'#882200','H':'#6699ff','h':'#334488','Z':'#ffccaa','z':'#cc8866','X':'#ff88ff','x':'#660066','I':'#ffddbb','i':'#aa7744'};
+const _IC={
+  road:       ['DDDDDDDD','GGGGGGGG','G__YY__G','G______G','G______G','G__YY__G','GGGGGGGG','DDDDDDDD'],
+  railway:    ['DtDGGDtD','DtDGGDtD','TTTTTTTT','DtDGGDtD','DtDGGDtD','TTTTTTTT','DtDGGDtD','DtDGGDtD'],
+  res_low:    ['___RR___','__RrRR__','_RrRRRR_','WWWBBWWW','WWWBBWWW','WWWDDWWW','TTTTTTTT','________'],
+  res_med:    ['_HHHHHH_','HswwswwH','HswwswwH','HssssssH','HswwswwH','HHHDDHhH','TTTTTTTT','________'],
+  res_high:   ['SSSSSSSS','SbWbWbWS','SbbbbbbS','SbWbWbWS','SbbbbbbS','SbWbWbWS','SSDDDDSS','TTTTTTTT'],
+  com_shop:   ['_OOOOO__','OOOOOOOO','YYYYYYYY','WwBBwwWW','WwBBwwWW','WWWDDWWW','TTTTTTTT','________'],
+  com_mall:   ['RRRRRRRR','RoooooOR','RWWBBWWR','RWWBBWWR','RWWBBWWR','RWWDDWWR','TTTTTTTT','________'],
+  ind_office: ['_HHHHHH_','HswwswwH','HswwswwH','HswwswwH','HswwswwH','HHHDDHHH','TTTTTTTT','________'],
+  bank:       ['YYYYYYYY','YtIIIItY','YtIIIItY','Yt_BB_tY','Yt_BB_tY','YtDDDDtY','YYYYYYYY','TTTTTTTT'],
+  gas_station:['_RRRRRR_','_RaAaAR_','GGGGGGGG','G_OO__GG','G_OO__GG','GGGGGGGG','YAAAAAAY','TTTTTTTT'],
+  skyscraper: ['__BBBB__','_BSwwSB_','_BSwwSB_','_BSwwSB_','_BSwwSB_','_BBDDBB_','BBBBBBBB','TTTTTTTT'],
+  skyscraper2:['_CCCCCC_','CQwwwwQC','CQwwwwQC','CQwwwwQC','CQwwwwQC','CCDDDDCC','CCCCCCCC','TTTTTTTT'],
+  skyscraper3:['_XXXXXX_','XPwwwwPX','XPwwwwPX','XPwwwwPX','XPwwwwPX','XPwwwwPX','XPDDDDPX','TTTTTTTT'],
+  ind_factory:['_1___1__','_1___1__','_111111_','G1DDD1GG','GGDDDGGG','RRRRRRGG','RwwwwRRR','TTTTTTTT'],
+  park:       ['_N___N__','NNN_NNN_','_N___N__','________','__N_____','_NNN____','__N_____','VVVVVVVV'],
+  school:     ['_RRRRRR_','RYYYYYY_','R_R__R_R','R_B__B_R','R_B__B_R','RRDDDRRR','TTTTTTTT','________'],
+  hospital:   ['_WWWWWW_','WW_RR_WW','W_RRRR_W','WW_RR_WW','WW____WW','W_B__B_W','WWDDDDWW','TTTTTTTT'],
+  police:     ['__BBBB__','_BbSSbB_','BbS__SbB','B_SSSS_B','BBbSSbBB','_BB__BB_','BBDDDDBB','TTTTTTTT'],
+  fire:       ['_FFFFFF_','RRRRRRRR','RWWWWWWR','RWWWWWWR','RAAAAAWR','RRRRRRRR','AAAAAAAA','TTTTTTTT'],
+  power_coal: ['_1___1__','_1___1__','_111111_','GGGGGGGG','GGGDdDGG','GGGDdDGG','GGGGGGGG','TTTTTTTT'],
+  power_solar:['YyYyYyYy','yYyYyYyY','YyYyYyYy','yYyYyYyY','YyYyYyYy','yYyYyYyY','_DDDDDD_','TTTTTTTT'],
+  power_wind: ['____W___','__gWW___','__W__gW_','gWWWW___','__W__gW_','__gWW___','____DDDD','TTTTTTTT'],
+  water_tile: ['BBbBBbBB','bBBBbBBb','BBbBBBbB','bBBcbBBb','BBBBBBcB','bBBBbBBb','BBcBBBBB','bBBBbBBb'],
+  water_pump: ['___BB___','__BBBBB_','_BBBBBBB','_B_BBB_B','_BDDDB_B','__DDDBB_','BBBBBBB_','TTTTTTTT'],
+  bus_stop:   ['__OOOO__','_OwwwwO_','OOwwwwOO','OOwwwwOO','_OOooOO_','____OO__','____DD__','TTTTTTTT'],
+  metro:      ['PPPPPPPP','PwwwwwwP','P______P','PPPPPPPP','________','_PPPPPP_','_P_DD_P_','TTTTTTTT'],
+  airport:    ['___gWg__','_gWWWWg_','gWWWWWWg','_gWWWWg_','GGGGGGGG','GGDDDDGG','GGGGGGGG','TTTTTTTT'],
+  bulldoze:   ['__YY____','_YYYYOY_','YYYYYYYY','OYYYYYO_','OOYYYOO_','_OOOOO__','__OOOO__','___OO___'],
+  // stats/UI
+  ic_money:   ['__YYYY__','_YyYYYY_','YYyyyyyY','YYyYyyyY','YYyYyyyY','YYyyyyyY','_YyYYYY_','__YYYY__'],
+  ic_net:     ['___NN___','__NNNN__','_NNNNNN_','NNNNNNNN','___NN___','___NN___','___NN___','___NN___'],
+  ic_pop:     ['_ZZ__ZZ_','ZZZZZZZZ','_ZZ__ZZ_','_ZZZZZZ_','ZZZZZZZZ','Z_ZZZZ_Z','__Z__Z__','__Z__Z__'],
+  ic_happy:   ['__YYYY__','_YYYYYY_','YYyYyYYY','YYYYYYYY','YY_YY_YY','YYyYYyYY','_YYYYYY_','__YYYY__'],
+  ic_traffic: ['________','_RRRRRR_','RRWWWWRR','RRRRRRRR','_o_RR_o_','________','________','________'],
+  ic_level:   ['___EE___','_EEEEEE_','EEEEEEEE','EEEEEEEE','_EEEEEE_','__EEEE__','__E__E__','__E__E__'],
+  ic_day:     ['_E_EEE_E','__EEEEE_','E_EEE_E_','EEEEEEE_','E_EEE_E_','__EEEEE_','_E_EEE_E','________'],
+  ic_sunny:   ['_E_E_E_E','_EEEEE__','E_EEEEE_','EEEEEEE_','E_EEEEE_','_EEEEE__','_E_E_E_E','________'],
+  ic_rainy:   ['__GGG___','_GGGGG__','GGGGGGG_','_GGGGG__','B_B_B_B_','_B_B_B_B','B_B_B_B_','________'],
+  ic_save:    ['BBBBBBBB','BBYYYY_B','BBYYYY_B','BBYYYY_B','BBBBBBBB','BwwwwwwB','BwwwwwwB','BBBBBBBB'],
+  ic_music:   ['__EEE___','__E_EE__','__E__EE_','__E___E_','EEEEE_E_','EEEEEEE_','___EEEE_','___EEE__'],
+  ic_moon:    ['__WWWW__','_WW____W','WW_____W','WW_____W','WW_____W','_WW___WW','__WWWWW_','________'],
+  ic_clock:   ['__GGGG__','_GGGGGG_','GGWG__GG','GG_W__GG','GG__WWGG','GG____GG','_GGGGGG_','__GGGG__'],
+  ic_help:    ['__CCCC__','_CC__CC_','_C___CC_','_C__CC__','_C_CC___','_C______','_C_CC___','__CCCC__'],
+  ic_dash:    ['_N______','_N__N___','_N__NN__','_N_NNN__','_N_NNNN_','_NNNNNNN','________','YYYYYYYY'],
+  ic_menu:    ['________','WWWWWWWW','WWWWWWWW','________','WWWWWWWW','WWWWWWWW','________','________'],
+  ic_pause:   ['WW__WW__','WW__WW__','WW__WW__','WW__WW__','WW__WW__','WW__WW__','WW__WW__','WW__WW__'],
+  ic_play:    ['W_______','WWW_____','WWWWW___','WWWWWWW_','WWWWWWW_','WWWWW___','WWW_____','W_______'],
+  ic_fast:    ['WW__WW__','WWW_WWW_','WWWWWWWW','WWWWWWWW','WWWWWWWW','WWW_WWW_','WW__WW__','________'],
+  ic_faster:  ['WW_WW___','WWWWWW__','WWWWWWWW','WWWWWWWW','WWWWWWWW','WWWWWW__','WW_WW___','________'],
+  // categories
+  cat_road:   ['DDDDDDDD','GGGGGGGG','G__YY__G','G______G','G______G','G__YY__G','GGGGGGGG','DDDDDDDD'],
+  cat_res:    ['___RR___','__RrRR__','_RrRRRR_','WWWBBWWW','WWWBBWWW','WWWDDWWW','TTTTTTTT','________'],
+  cat_com:    ['_OOOOO__','OOOOOOOO','YYYYYYYY','WwBBwwWW','WwBBwwWW','WWWDDWWW','TTTTTTTT','________'],
+  cat_ind:    ['_1___1__','_1___1__','_111111_','G1DDD1GG','GGDDDGGG','RRRRRRGG','TTTTTTTT','________'],
+  cat_util:   ['___EE___','__EEEE__','_EEEEEE_','EEEEEEE_','__EEE___','___EEE__','____EE__','_____E__'],
+  cat_pub:    ['___WW___','___WW___','WWWWWWWW','WWWWWWWW','___WW___','___WW___','_TTTTTT_','________'],
+  cat_transit:['________','_OOOOOO_','OOwwwwOO','OOwwwwOO','_OOOOOO_','____OO__','_oo__oo_','________'],
+  cat_tool:   ['_GGG____','_GGGg___','GGGGg___','GGGGg___','__GGg___','__GGg___','__GGg___','__GGg___'],
+  // main menu icons
+  mn_new:     ['____TT__','___TTT__','__TTTT__','TTTTTTTT','_TTTTTT_','__TTTT__','___TTT__','____TT__'],
+  mn_continue:['________','_N______','_NNN____','_NNNNN__','_NNNNNNNN','_NNNNN__','_NNN____','_N______'],
+  mn_sandbox: ['_QqQqQq_','QqQqQqQq','qQqQqQqQ','QqQqQqQq','qQqQqQqQ','QqQqQqQq','qQqQqQqQ','_QqQqQq_'],
+  mn_scenario:['___YY___','__YYYY__','_YYYYYY_','YY_YY_YY','YYYYYYYY','_YYYYYY_','__Y__Y__','__Y__Y__'],
+  mn_multi:   ['_BB__BB_','BBBBBBBB','BBBBBBB_','__BBBBB_','__BBBBB_','BBBBBBB_','BBBBBBBB','_BB__BB_'],
+  mn_settings:['__gGg___','_gGGGg__','gGGGGGg_','GGG__GGG','GGG__GGG','gGGGGGg_','_gGGGg__','__gGg___'],
+};
+function _pxSVG(rows,size){const h=rows.length,w=rows[0].length,ps=size/w;let r='';for(let y=0;y<h;y++)for(let x=0;x<w;x++){const c=rows[y][x];if(c==='_'||c==='.')continue;r+=`<rect x="${(x*ps).toFixed(1)}" y="${(y*ps).toFixed(1)}" width="${ps.toFixed(1)}" height="${ps.toFixed(1)}" fill="${_P[c]??'#f0f'}"/>`;}return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" shape-rendering="crispEdges">${r}</svg>`;}
+function pxImg(key,size=24){const rows=_IC[key];if(!rows)return'❓';const uri='data:image/svg+xml;base64,'+btoa(_pxSVG(rows,size));return `<img src="${uri}" width="${size}" height="${size}" style="image-rendering:pixelated;vertical-align:middle;display:inline-block">`;}
+
 const BUILDINGS = {
-  road:        { name:'Road',          icon:'🛣️', cost:50,   cat:'road',     color:0x5a6070, h:0.05, size:1 },
-  res_low:     { name:'Low Density',   icon:'🏠', cost:200,  cat:'res',      color:0xffdd88, accent:0xdd8800, h:1.2, jobs:0, homes:4, power:1, water:1, tax:8, size:1 },
-  res_med:     { name:'Med Density',   icon:'🏘️', cost:600,  cat:'res',      color:0xff8fab, accent:0xcc2255, h:2.6, homes:12, power:3, water:3, tax:22, size:2 },
-  res_high:    { name:'High Density',  icon:'🏢', cost:1800, cat:'res',      color:0x88ccff, accent:0x1155aa, h:5.0, homes:40, power:8, water:8, tax:75, size:2 },
-  com_shop:    { name:'Shop',          icon:'🏪', cost:300,  cat:'com',      color:0x55ddcc, accent:0x117766, h:1.4, jobs:6, power:2, water:1, tax:25, size:1 },
-  com_mall:    { name:'Mall',          icon:'🏬', cost:1500, cat:'com',      color:0x55aaff, accent:0x1144bb, h:2.2, jobs:25, power:6, water:3, tax:90, size:3 },
-  ind_factory: { name:'Factory',       icon:'🏭', cost:800,  cat:'ind',      color:0xffaa44, accent:0xaa5500, h:1.6, jobs:20, power:6, water:4, tax:60, pollution:5, size:2 },
-  ind_office:  { name:'Office',        icon:'🏛️', cost:1200, cat:'com',      color:0xaa88ff, accent:0x5522aa, h:4.2, jobs:30, power:5, water:2, tax:110, size:2 },
-  bank:        { name:'Bank',          icon:'🏦', cost:2500, cat:'com',      color:0xffd700, accent:0x996600, h:3.5, jobs:40, power:4, water:2, tax:200, size:2 },
-  gas_station: { name:'Gas Station',   icon:'⛽', cost:500,  cat:'com',      color:0xffee55, accent:0xdd8800, h:1.0, jobs:4, power:2, water:1, tax:40, size:1 },
-  skyscraper:  { name:'Skyscraper A',  icon:'🌆', cost:8000, cat:'com',      color:0x6655ff, accent:0x221188, h:10.0, jobs:120, homes:60, power:20, water:12, tax:400, unlock:'metro', size:2 },
-  skyscraper2: { name:'Skyscraper B',  icon:'🏙️', cost:10000,cat:'com',      color:0x00ccff, accent:0x004466, h:13.0, jobs:150, homes:80, power:25, water:15, tax:500, unlock:'metro', size:2 },
-  skyscraper3: { name:'Skyscraper C',  icon:'🌇', cost:18000,cat:'com',      color:0xff6600, accent:0x882200, h:16.0, jobs:200, homes:100, power:35, water:20, tax:800, unlock:'big', size:3 },
-  power_coal:  { name:'Coal Plant',    icon:'⚡', cost:1500, cat:'util',     color:0x99aabb, accent:0x445566, h:1.8, powerGen:80, pollution:8, size:3 },
-  power_solar: { name:'Solar Farm',    icon:'☀️', cost:2200, cat:'util',     color:0xffee33, h:0.3, powerGen:50, size:3 },
-  power_wind:  { name:'Wind Farm',     icon:'💨', cost:2000, cat:'util',     color:0xddeeff, h:5.0, powerGen:60, size:2 },
-  water_tile:  { name:'Lake / River',  icon:'🌊', cost:80,   cat:'util',     color:0x2299ff, h:0.05, size:1, isWater:true },
-  water_pump:  { name:'Water Pump',    icon:'💧', cost:900,  cat:'util',     color:0x44bbff, accent:0x1166aa, h:1.0, waterGen:80, size:1 },
-  park:        { name:'Park',          icon:'🌳', cost:200,  cat:'public',   color:0x44cc55, h:0.2, happy:5, size:1 },
-  school:      { name:'School',        icon:'🏫', cost:1200, cat:'public',   color:0xff6655, accent:0xaa2200, h:1.6, happy:3, edu:1, size:2 },
-  hospital:    { name:'Hospital',      icon:'🏥', cost:2000, cat:'public',   color:0xffffff, accent:0xff3344, h:2.4, happy:4, size:2 },
-  police:      { name:'Police',        icon:'🚓', cost:900,  cat:'public',   color:0x4477ff, accent:0xffdd00, h:1.4, happy:2, size:1 },
-  fire:        { name:'Fire Station',  icon:'🚒', cost:900,  cat:'public',   color:0xff4422, accent:0xffdd00, h:1.4, happy:2, size:1 },
-  railway:     { name:'Railway',       icon:'🚂', cost:80,   cat:'transit',  color:0x555566, h:0.08, size:1 },
-  bus_stop:    { name:'Bus Stop',      icon:'🚌', cost:300,  cat:'transit',  color:0xffcc22, accent:0x885500, h:0.5, happy:2, size:1 },
-  metro:       { name:'Metro Station', icon:'🚇', cost:5000, cat:'transit',  color:0xbb55ff, accent:0x660099, h:2.2, happy:6, unlock:'metro', size:2 },
-  airport:     { name:'Airport',       icon:'✈️', cost:15000,cat:'transit',  color:0xddeeff, accent:0x445566, h:1.0, happy:8, tax:200, unlock:'big', size:4 },
-  bulldoze:    { name:'Bulldoze',      icon:'💥', cost:0,    cat:'tool',     color:0xef4444, size:1 }
+  road:        { name:'Road',          icon:pxImg('road'),        cost:50,   cat:'road',   color:0x5a6070, h:0.05, size:1 },
+  res_low:     { name:'Low Density',   icon:pxImg('res_low'),     cost:200,  cat:'res',    color:0xffdd88, accent:0xdd8800, h:1.2, jobs:0, homes:4, power:1, water:1, tax:8, size:1 },
+  res_med:     { name:'Med Density',   icon:pxImg('res_med'),     cost:600,  cat:'res',    color:0xff8fab, accent:0xcc2255, h:2.6, homes:12, power:3, water:3, tax:22, size:2 },
+  res_high:    { name:'High Density',  icon:pxImg('res_high'),    cost:1800, cat:'res',    color:0x88ccff, accent:0x1155aa, h:5.0, homes:40, power:8, water:8, tax:75, size:2 },
+  com_shop:    { name:'Shop',          icon:pxImg('com_shop'),    cost:300,  cat:'com',    color:0x55ddcc, accent:0x117766, h:1.4, jobs:6, power:2, water:1, tax:25, size:1 },
+  com_mall:    { name:'Mall',          icon:pxImg('com_mall'),    cost:1500, cat:'com',    color:0x55aaff, accent:0x1144bb, h:2.2, jobs:25, power:6, water:3, tax:90, size:3 },
+  ind_factory: { name:'Factory',       icon:pxImg('ind_factory'), cost:800,  cat:'ind',    color:0xffaa44, accent:0xaa5500, h:1.6, jobs:20, power:6, water:4, tax:60, pollution:5, size:2 },
+  ind_office:  { name:'Office',        icon:pxImg('ind_office'),  cost:1200, cat:'com',    color:0xaa88ff, accent:0x5522aa, h:4.2, jobs:30, power:5, water:2, tax:110, size:2 },
+  bank:        { name:'Bank',          icon:pxImg('bank'),        cost:2500, cat:'com',    color:0xffd700, accent:0x996600, h:3.5, jobs:40, power:4, water:2, tax:200, size:2 },
+  gas_station: { name:'Gas Station',   icon:pxImg('gas_station'), cost:500,  cat:'com',    color:0xffee55, accent:0xdd8800, h:1.0, jobs:4, power:2, water:1, tax:40, size:1 },
+  skyscraper:  { name:'Skyscraper A',  icon:pxImg('skyscraper'),  cost:8000, cat:'com',    color:0x6655ff, accent:0x221188, h:10.0, jobs:120, homes:60, power:20, water:12, tax:400, unlock:'metro', size:2 },
+  skyscraper2: { name:'Skyscraper B',  icon:pxImg('skyscraper2'), cost:10000,cat:'com',    color:0x00ccff, accent:0x004466, h:13.0, jobs:150, homes:80, power:25, water:15, tax:500, unlock:'metro', size:2 },
+  skyscraper3: { name:'Skyscraper C',  icon:pxImg('skyscraper3'), cost:18000,cat:'com',    color:0xff6600, accent:0x882200, h:16.0, jobs:200, homes:100, power:35, water:20, tax:800, unlock:'big', size:3 },
+  power_coal:  { name:'Coal Plant',    icon:pxImg('power_coal'),  cost:1500, cat:'util',   color:0x99aabb, accent:0x445566, h:1.8, powerGen:80, pollution:8, size:3 },
+  power_solar: { name:'Solar Farm',    icon:pxImg('power_solar'), cost:2200, cat:'util',   color:0xffee33, h:0.3, powerGen:50, size:3 },
+  power_wind:  { name:'Wind Farm',     icon:pxImg('power_wind'),  cost:2000, cat:'util',   color:0xddeeff, h:5.0, powerGen:60, size:2 },
+  water_tile:  { name:'Lake / River',  icon:pxImg('water_tile'),  cost:80,   cat:'util',   color:0x2299ff, h:0.05, size:1, isWater:true },
+  water_pump:  { name:'Water Pump',    icon:pxImg('water_pump'),  cost:900,  cat:'util',   color:0x44bbff, accent:0x1166aa, h:1.0, waterGen:80, size:1 },
+  park:        { name:'Park',          icon:pxImg('park'),        cost:200,  cat:'public', color:0x44cc55, h:0.2, happy:5, size:1 },
+  school:      { name:'School',        icon:pxImg('school'),      cost:1200, cat:'public', color:0xff6655, accent:0xaa2200, h:1.6, happy:3, edu:1, size:2 },
+  hospital:    { name:'Hospital',      icon:pxImg('hospital'),    cost:2000, cat:'public', color:0xffffff, accent:0xff3344, h:2.4, happy:4, size:2 },
+  police:      { name:'Police',        icon:pxImg('police'),      cost:900,  cat:'public', color:0x4477ff, accent:0xffdd00, h:1.4, happy:2, size:1 },
+  fire:        { name:'Fire Station',  icon:pxImg('fire'),        cost:900,  cat:'public', color:0xff4422, accent:0xffdd00, h:1.4, happy:2, size:1 },
+  railway:     { name:'Railway',       icon:pxImg('railway'),     cost:80,   cat:'transit',color:0x555566, h:0.08, size:1 },
+  bus_stop:    { name:'Bus Stop',      icon:pxImg('bus_stop'),    cost:300,  cat:'transit',color:0xffcc22, accent:0x885500, h:0.5, happy:2, size:1 },
+  metro:       { name:'Metro Station', icon:pxImg('metro'),       cost:5000, cat:'transit',color:0xbb55ff, accent:0x660099, h:2.2, happy:6, unlock:'metro', size:2 },
+  airport:     { name:'Airport',       icon:pxImg('airport'),     cost:15000,cat:'transit',color:0xddeeff, accent:0x445566, h:1.0, happy:8, tax:200, unlock:'big', size:4 },
+  bulldoze:    { name:'Bulldoze',      icon:pxImg('bulldoze'),    cost:0,    cat:'tool',   color:0xef4444, size:1 }
 };
 
 const CATEGORIES = [
-  { id:'road',    icon:'🛣️', name:'Roads',     items:['road','railway'] },
-  { id:'res',     icon:'🏘️', name:'Housing',   items:['res_low','res_med','res_high'] },
-  { id:'com',     icon:'🏬', name:'Commerce',  items:['com_shop','com_mall','ind_office','bank','gas_station','skyscraper','skyscraper2','skyscraper3'] },
-  { id:'ind',     icon:'🏭', name:'Industry',  items:['ind_factory'] },
-  { id:'util',    icon:'⚡', name:'Utilities', items:['power_coal','power_solar','power_wind','water_tile','water_pump'] },
-  { id:'public',  icon:'🌳', name:'Public',    items:['park','school','hospital','police','fire'] },
-  { id:'transit', icon:'🚌', name:'Transit',   items:['bus_stop','metro','airport'] },
-  { id:'tool',    icon:'🛠️', name:'Tools',     items:['bulldoze'] }
+  { id:'road',    icon:pxImg('cat_road',16),    name:'Roads',     items:['road','railway'] },
+  { id:'res',     icon:pxImg('cat_res',16),     name:'Housing',   items:['res_low','res_med','res_high'] },
+  { id:'com',     icon:pxImg('cat_com',16),     name:'Commerce',  items:['com_shop','com_mall','ind_office','bank','gas_station','skyscraper','skyscraper2','skyscraper3'] },
+  { id:'ind',     icon:pxImg('cat_ind',16),     name:'Industry',  items:['ind_factory'] },
+  { id:'util',    icon:pxImg('cat_util',16),    name:'Utilities', items:['power_coal','power_solar','power_wind','water_tile','water_pump'] },
+  { id:'public',  icon:pxImg('cat_pub',16),     name:'Public',    items:['park','school','hospital','police','fire'] },
+  { id:'transit', icon:pxImg('cat_transit',16), name:'Transit',   items:['bus_stop','metro','airport'] },
+  { id:'tool',    icon:pxImg('cat_tool',16),    name:'Tools',     items:['bulldoze'] }
 ];
 
 const FIRST_NAMES = ['Agus','Budi','Citra','Dewi','Eko','Fitri','Gita','Hadi','Indra','Joko','Kartika','Lina','Made','Nia','Oka','Putri','Rina','Sari','Tono','Udin','Vina','Wahyu','Yuli','Zaki'];
 const LAST_NAMES = ['Pratama','Wijaya','Sari','Susanto','Rahman','Hidayat','Saputra','Putra','Lestari','Anggraini'];
 const JOBS = ['Programmer','Teacher','Doctor','Engineer','Designer','Manager','Worker','Driver','Chef','Artist'];
 const EDUS = ['SD','SMP','SMA','Sarjana','Master'];
+
+// -------------------- MISSION SYSTEM --------------------
+const MISSION_LEVELS = [
+  { num:1,  name:'Memulai Nusabox',       reward:10000,
+    objectives:[
+      { type:'roads',        min:5,  label:'Bangun 5 Jalan' },
+      { type:'btype',        btype:'house', min:3, label:'Bangun 3 Rumah' },
+    ],
+    president:[
+      'Selamat datang, Walikota baru!\nSaya Presiden Nusabox yang... tidak becus.',
+      'Ya, saya akui. Saya TIDAK BECUS mengurus\nkota ini sendiri. Makanya kamu dipanggil!',
+      'Mulailah dengan membangun JALAN\ndan beberapa RUMAH untuk warga.',
+      'Semoga kamu lebih pintar dari saya...\nYang mana tidak sulit sama sekali.',
+    ]
+  },
+  { num:2,  name:'Warga Pertama',          reward:15000,
+    objectives:[
+      { type:'population',   min:50,  label:'50 Penduduk' },
+      { type:'btype',        btype:'house', min:5, label:'Bangun 5 Rumah' },
+    ],
+    president:[
+      'Bagus! Tapi kota ini masih kosong melompong.',
+      'Dulu waktu saya yang urus, warganya malah\nkabur semua. Tanda saya memang tidak becus!',
+      'Sekarang tambah rumah lebih banyak\ndan ajak 50 warga untuk pindah ke sini.',
+    ]
+  },
+  { num:3,  name:'Cahaya Kota',            reward:20000,
+    objectives:[
+      { type:'btype',        btype:'power_plant', min:1, label:'Bangun 1 Pembangkit Listrik' },
+      { type:'population',   min:100, label:'100 Penduduk' },
+    ],
+    president:[
+      'Lampu di istana saya sering mati...\nKarena saya tidak becus urus infrastruktur!',
+      'Bangunlah PEMBANGKIT LISTRIK agar\nkota ini tidak gelap gulita seperti karir saya.',
+      'Targetnya 100 penduduk juga.\nMereka butuh listrik, bukan pidato kosong!',
+    ]
+  },
+  { num:4,  name:'Air Kehidupan',          reward:20000,
+    objectives:[
+      { type:'btype',        btype:'water_tower', min:1, label:'Bangun 1 Menara Air' },
+      { type:'population',   min:200, label:'200 Penduduk' },
+    ],
+    president:[
+      'Air di istana saya pun sering mampet...\nKarena saya tidak becus urus sistem air!',
+      'Bangunlah MENARA AIR agar warga\ntidak dehidrasi karena kecerobohan saya dulu.',
+      'Dan terus kembangkan populasi hingga 200 jiwa.',
+    ]
+  },
+  { num:5,  name:'Kota Bahagia',           reward:25000,
+    objectives:[
+      { type:'btypes',       btypes:['park','stadium'], min:2, label:'Bangun 2 Taman/Stadion' },
+      { type:'happiness',    min:50,  label:'Kebahagiaan 50%' },
+      { type:'population',   min:300, label:'300 Penduduk' },
+    ],
+    president:[
+      'Warga bilang kota ini membosankan...\nItu salah saya! Saya tidak becus bikin hiburan!',
+      'Bangunlah TAMAN atau STADION\nagar warga tidak stress seperti melihat muka saya.',
+      'Pastikan kebahagiaan warga minimal 50%\ndan populasi sudah 300 orang.',
+    ]
+  },
+  { num:6,  name:'Roda Ekonomi',           reward:30000,
+    objectives:[
+      { type:'btype',        btype:'shop', min:3, label:'Bangun 3 Toko' },
+      { type:'btype',        btype:'gas_station', min:1, label:'Bangun 1 SPBU' },
+      { type:'population',   min:400, label:'400 Penduduk' },
+    ],
+    president:[
+      'Ekonomi kota ini dulu hancur lebur...\nYa, karena saya yang tidak becus mengelolanya!',
+      'Saatnya bangun TOKO dan SPBU\nagar roda ekonomi Nusabox berputar kembali.',
+      'Target kita 400 penduduk dan\nekonomi yang mulai bergeliat!',
+    ]
+  },
+  { num:7,  name:'Keamanan Kota',          reward:35000,
+    objectives:[
+      { type:'btype',        btype:'police', min:1, label:'Bangun 1 Kantor Polisi' },
+      { type:'population',   min:500, label:'500 Penduduk' },
+      { type:'happiness',    min:55,  label:'Kebahagiaan 55%' },
+    ],
+    president:[
+      'Kriminalitas di kota saya dulu meningkat...\nKarena saya terlalu tidak becus untuk peduli!',
+      'Bangunlah KANTOR POLISI agar warga\nmerasa aman dan tidak takut keluar rumah.',
+      'Kebahagiaan harus 55% dan\npopulasi minimal 500 jiwa.',
+    ]
+  },
+  { num:8,  name:'Generasi Pintar',        reward:35000,
+    objectives:[
+      { type:'btype',        btype:'school', min:1, label:'Bangun 1 Sekolah' },
+      { type:'population',   min:700, label:'700 Penduduk' },
+    ],
+    president:[
+      'Saya tidak pernah belajar dengan benar...\nMakanya saya tidak becus jadi pemimpin!',
+      'Tapi kamu bisa memastikan generasi\nNusabox lebih cerdas dari saya.',
+      'Bangunlah SEKOLAH untuk mendidik\n700 warga yang terus berdatangan!',
+    ]
+  },
+  { num:9,  name:'Industri Bangkit',       reward:40000,
+    objectives:[
+      { type:'btype',        btype:'factory', min:2, label:'Bangun 2 Pabrik' },
+      { type:'jobs',         min:100, label:'100 Lapangan Kerja' },
+    ],
+    president:[
+      'Industri Nusabox dulu bangkrut semua...\nKarena kebijakan tidak becus saya!',
+      'Bangunlah PABRIK agar warga punya\npekerjaan dan tidak nganggur seperti saya dulu.',
+      'Target 100 lapangan kerja tersedia\ndi kota yang mulai berkembang ini!',
+    ]
+  },
+  { num:10, name:'Kota Seribu Jiwa',       reward:75000,
+    objectives:[
+      { type:'population',   min:1000,  label:'1.000 Penduduk' },
+      { type:'money',        min:200000, label:'Uang $200.000' },
+      { type:'happiness',    min:60,    label:'Kebahagiaan 60%' },
+    ],
+    president:[
+      'Seribu jiwa! Saya tidak pernah bisa\ncapai ini karena saya memang tidak becus!',
+      'Ini pencapaian luar biasa.\nWarga yang dulu kabur mulai kembali!',
+      'Jaga uang kas kota minimal $200.000\ndan kebahagiaan warga di atas 60%.',
+      'Reward besar menunggumu,\nWalikota yang jauh lebih kompeten dari saya!',
+    ]
+  },
+  { num:11, name:'Pelayanan Kesehatan',    reward:45000,
+    objectives:[
+      { type:'btype',        btype:'hospital', min:1, label:'Bangun 1 Rumah Sakit' },
+      { type:'population',   min:1200, label:'1.200 Penduduk' },
+    ],
+    president:[
+      'Dulu saya sakit, tidak ada rumah sakit...\nKarena saya sendiri yang tidak becus bangunnya!',
+      'Segera dirikan RUMAH SAKIT agar\nwarga Nusabox sehat dan sejahtera.',
+      'Populasi target kita adalah 1.200 jiwa.\nMaju terus, Walikota!',
+    ]
+  },
+  { num:12, name:'Pusat Bisnis',           reward:50000,
+    objectives:[
+      { type:'btype',        btype:'bank', min:1, label:'Bangun 1 Bank' },
+      { type:'btypes',       btypes:['shop','office','gas_station','bank'], min:8, label:'8 Bangunan Komersial' },
+      { type:'population',   min:1500, label:'1.500 Penduduk' },
+    ],
+    president:[
+      'Bank di Nusabox bangkrut di zaman saya...\nYa ampun, betapa tidak becusnya saya!',
+      'Bangunlah BANK dan perluas kawasan\nkomersial hingga 8 bangunan bisnis.',
+      'Dengan 1.500 penduduk, Nusabox\nmulai jadi kota bisnis yang serius!',
+    ]
+  },
+  { num:13, name:'Kota Yang Kaya',         reward:60000,
+    objectives:[
+      { type:'money',        min:500000, label:'Uang $500.000' },
+      { type:'population',   min:2000,   label:'2.000 Penduduk' },
+      { type:'income',       min:500,    label:'Pendapatan $500/hari' },
+    ],
+    president:[
+      'Kas kota di zaman saya selalu minus...\nItu bukti nyata ketidakbecusan saya!',
+      'Buktikan bahwa kota ini bisa kaya\ndengan kas $500.000 dan 2.000 warga.',
+      'Pendapatan harian harus mencapai $500.\nBaru kamu lebih jago dari saya!',
+    ]
+  },
+  { num:14, name:'Pemadam Kebakaran',      reward:50000,
+    objectives:[
+      { type:'btype',        btype:'fire_station', min:1, label:'Bangun 1 Pemadam Kebakaran' },
+      { type:'population',   min:2500, label:'2.500 Penduduk' },
+    ],
+    president:[
+      'Di zaman saya, kebakaran dibiarkan\nmenyala karena saya tidak becus urus ini!',
+      'Bangunlah PEMADAM KEBAKARAN sebelum\nNusabox terbakar habis oleh kelalaian!',
+      'Pastikan 2.500 warga terlindungi\ndengan layanan darurat yang memadai.',
+    ]
+  },
+  { num:15, name:'Kota Hijau',             reward:60000,
+    objectives:[
+      { type:'btypes',       btypes:['park','stadium'], min:5, label:'5 Taman/Stadion' },
+      { type:'happiness',    min:65,   label:'Kebahagiaan 65%' },
+      { type:'population',   min:3000, label:'3.000 Penduduk' },
+    ],
+    president:[
+      'Kota saya dulu abu-abu dan suram...\nSama suram-nya dengan kepemimpinan saya!',
+      'Hijaukan Nusabox dengan 5 taman\natau stadion yang besar dan megah.',
+      'Kebahagiaan 65% dan 3.000 warga\nadalah bukti kota yang benar-benar hidup!',
+    ]
+  },
+  { num:16, name:'Transportasi Publik',    reward:65000,
+    objectives:[
+      { type:'btype',        btype:'bus_stop', min:3, label:'Bangun 3 Halte Bus' },
+      { type:'population',   min:4000, label:'4.000 Penduduk' },
+    ],
+    president:[
+      'Transportasi publik di kota saya dulu\nnol besar! Karena saya tidak becus merencanakannya!',
+      'Bangunlah HALTE BUS agar warga\nbisa bepergian tanpa macet yang saya ciptakan!',
+      'Dengan 4.000 warga, kota butuh\ntransportasi yang lebih serius.',
+    ]
+  },
+  { num:17, name:'Zona Kantor',            reward:70000,
+    objectives:[
+      { type:'btype',        btype:'office', min:3, label:'Bangun 3 Kantor' },
+      { type:'jobs',         min:300,  label:'300 Lapangan Kerja' },
+      { type:'population',   min:5000, label:'5.000 Penduduk' },
+    ],
+    president:[
+      'Zona perkantoran di Nusabox kosong melompong\nkarena saya tidak becus menarik investor!',
+      'Bangunlah KANTOR-KANTOR besar\ndan ciptakan 300 lapangan kerja.',
+      'Lima ribu warga menunggu\npeluang kerja yang layak dari kamu!',
+    ]
+  },
+  { num:18, name:'Era Metro',              reward:80000,
+    objectives:[
+      { type:'btype',        btype:'metro', min:1,  label:'Bangun 1 Stasiun Metro' },
+      { type:'btype',        btype:'railway', min:10, label:'10 Rel Kereta Api' },
+      { type:'population',   min:6000, label:'6.000 Penduduk' },
+    ],
+    president:[
+      'Kereta api? Di zaman saya tidak ada!\nSaya terlalu tidak becus untuk mewujudkannya!',
+      'Bangunlah STASIUN METRO dan\nrentangkan 10 rel kereta di seluruh kota.',
+      'Enam ribu warga butuh transportasi\nmassal yang canggih dan terpercaya!',
+    ]
+  },
+  { num:19, name:'Sepuluh Ribu Jiwa',      reward:100000,
+    objectives:[
+      { type:'population',   min:10000,  label:'10.000 Penduduk' },
+      { type:'happiness',    min:68,     label:'Kebahagiaan 68%' },
+      { type:'money',        min:800000, label:'Uang $800.000' },
+    ],
+    president:[
+      'Sepuluh ribu jiwa! Angka yang mustahil\ndi zaman saya yang tidak becus ini!',
+      'Ini milestone kritis. Nusabox berubah\ndari kota kecil menjadi kota sungguhan!',
+      'Jaga kebahagiaan 68%, kas $800.000\ndan terus kembangkan kota yang luar biasa ini!',
+    ]
+  },
+  { num:20, name:'Pusat Hiburan',          reward:80000,
+    objectives:[
+      { type:'btype',        btype:'stadium', min:1,   label:'Bangun 1 Stadion' },
+      { type:'happiness',    min:72,           label:'Kebahagiaan 72%' },
+      { type:'population',   min:11000,        label:'11.000 Penduduk' },
+    ],
+    president:[
+      'Hiburan? Di kota saya tidak ada karena\nanggarannya saya korupsi... eh maksudnya salah kelola!',
+      'Oke oke, saya tidak becus urus anggaran.\nBangunlah STADION yang megah untuk warga!',
+      'Kebahagiaan 72% dan 11.000 warga\nadalah standar kota yang layak huni!',
+    ]
+  },
+  { num:21, name:'Kota Jutawan',           reward:100000,
+    objectives:[
+      { type:'money',        min:1000000, label:'Uang $1.000.000' },
+      { type:'income',       min:1000,    label:'Pendapatan $1.000/hari' },
+      { type:'population',   min:12000,   label:'12.000 Penduduk' },
+    ],
+    president:[
+      'Satu juta dollar... saya tidak pernah\nbisa capai itu karena saya memang tidak becus!',
+      'Tapi kamu? Kamu sudah buktikan\nbahwa Nusabox bisa jadi kota kaya raya!',
+      'Target: kas $1 juta, pendapatan $1.000/hari\ndan 12.000 warga yang sejahtera.',
+    ]
+  },
+  { num:22, name:'Pintu Dunia',            reward:100000,
+    objectives:[
+      { type:'btype',        btype:'airport', min:1,  label:'Bangun 1 Bandara' },
+      { type:'population',   min:15000,        label:'15.000 Penduduk' },
+    ],
+    president:[
+      'Bandara Nusabox? Dulu tidak ada!\nSaya terlalu tidak becus untuk membangunnya!',
+      'Nusabox butuh BANDARA agar terhubung\ndengan dunia dan mendatangkan wisatawan.',
+      'Lima belas ribu jiwa siap menyambut\ntamu dari seluruh penjuru dunia!',
+    ]
+  },
+  { num:23, name:'Langit Nusabox',         reward:120000,
+    objectives:[
+      { type:'btypes',       btypes:['skyscraper','skyscraper2','skyscraper3'], min:1, label:'Bangun 1 Pencakar Langit' },
+      { type:'population',   min:18000,   label:'18.000 Penduduk' },
+      { type:'money',        min:1500000, label:'Uang $1.500.000' },
+    ],
+    president:[
+      'Gedung pencakar langit? Mimpi yang\ntidak pernah saya wujudkan karena tidak becus!',
+      'Bangunlah SKYSCRAPER megah yang\nmenjulang tinggi ke langit Nusabox!',
+      'Delapan belas ribu jiwa dan kas\n$1,5 juta adalah bukti kemajuan kota!',
+    ]
+  },
+  { num:24, name:'Metropolis Muda',        reward:150000,
+    objectives:[
+      { type:'population',   min:25000,  label:'25.000 Penduduk' },
+      { type:'happiness',    min:75,     label:'Kebahagiaan 75%' },
+      { type:'btypes',       btypes:['skyscraper','skyscraper2','skyscraper3'], min:2, label:'2 Pencakar Langit' },
+    ],
+    president:[
+      'Nusabox sudah melampaui impian saya yang\ntidak becus! Dua puluh lima ribu jiwa!',
+      'Langit kota dihiasi dua gedung\npencakar langit yang megah dan gagah.',
+      'Pertahankan kebahagiaan 75% agar\nwarga tidak minta presiden baru selain saya!',
+    ]
+  },
+  { num:25, name:'Kota Sejahtera',         reward:150000,
+    objectives:[
+      { type:'happiness',    min:80,    label:'Kebahagiaan 80%' },
+      { type:'btypes',       btypes:['park','stadium','hospital','school'], min:10, label:'10 Fasilitas Publik' },
+      { type:'population',   min:28000, label:'28.000 Penduduk' },
+    ],
+    president:[
+      'Fasilitas publik yang lengkap...\nHal yang tidak pernah saya prioritaskan!',
+      'Ya, saya akui sekali lagi: SAYA TIDAK BECUS!\nTapi Nusabox di tanganmu luar biasa!',
+      'Bangun 10 fasilitas publik berkualitas\ndan jaga kebahagiaan warga di 80%.',
+    ]
+  },
+  { num:26, name:'Ekspansi Besar',         reward:180000,
+    objectives:[
+      { type:'btypes',       btypes:['skyscraper','skyscraper2','skyscraper3'], min:4, label:'4 Pencakar Langit' },
+      { type:'money',        min:2000000, label:'Uang $2.000.000' },
+      { type:'population',   min:32000,   label:'32.000 Penduduk' },
+    ],
+    president:[
+      'Empat pencakar langit! Di zaman saya\nhanya ada satu pun tidak! Karena tidak becus!',
+      'Ekspansi besar-besaran sedang terjadi.\nNusabox menjadi kota megah yang sesungguhnya!',
+      'Kumpulkan $2 juta dan kembangkan\npopulasi hingga 32.000 jiwa perkasa!',
+    ]
+  },
+  { num:27, name:'Pusat Teknologi',        reward:200000,
+    objectives:[
+      { type:'btypes',       btypes:['office','skyscraper','skyscraper2','skyscraper3'], min:15, label:'15 Kantor/Pencakar Langit' },
+      { type:'jobs',         min:1000,  label:'1.000 Lapangan Kerja' },
+      { type:'population',   min:38000, label:'38.000 Penduduk' },
+    ],
+    president:[
+      'Pusat teknologi yang saya impikan\ntapi tidak becus wujudkan sepanjang jabatan saya!',
+      'Kini Nusabox menjadi pusat bisnis\ndan teknologi yang diperhitungkan dunia!',
+      'Lima belas gedung tinggi, 1.000 lapangan kerja,\ndan 38.000 jiwa yang produktif!',
+    ]
+  },
+  { num:28, name:'Lima Puluh Ribu',        reward:250000,
+    objectives:[
+      { type:'population',   min:50000,  label:'50.000 Penduduk' },
+      { type:'happiness',    min:82,     label:'Kebahagiaan 82%' },
+      { type:'money',        min:3000000, label:'Uang $3.000.000' },
+    ],
+    president:[
+      'Lima puluh ribu jiwa! Angka yang\ntidak pernah saya bayangkan bisa tercapai!',
+      'Di zaman saya yang tidak becus,\npopulasi tidak pernah melebihi 5.000 orang.',
+      'Tapi di tanganmu, Nusabox telah bertransformasi\nmenjadi kota besar yang luar biasa!',
+      'Pertahankan kebahagiaan 82%\ndan kas $3 juta sebagai landasan masa depan!',
+    ]
+  },
+  { num:29, name:'Kota Dunia',             reward:300000,
+    objectives:[
+      { type:'btype',        btype:'airport', min:1,  label:'1 Bandara Internasional' },
+      { type:'btype',        btype:'metro',   min:2,  label:'2 Stasiun Metro' },
+      { type:'btypes',       btypes:['skyscraper','skyscraper2','skyscraper3'], min:6, label:'6 Pencakar Langit' },
+      { type:'population',   min:60000,        label:'60.000 Penduduk' },
+    ],
+    president:[
+      'Enam puluh ribu jiwa, bandara, metro,\ndan enam pencakar langit... LUAR BIASA!',
+      'Semua yang tidak bisa saya lakukan\nkarena ketidakbecusan saya selama ini!',
+      'Nusabox kini diakui sebagai\nkota kelas dunia yang modern!',
+      'Satu langkah lagi menuju tujuan\nakhir yang selama ini kita kejar!',
+    ]
+  },
+  { num:30, name:'Nusabox Sempurna',       reward:500000,
+    objectives:[
+      { type:'population',   min:75000,   label:'75.000 Penduduk' },
+      { type:'happiness',    min:85,      label:'Kebahagiaan 85%' },
+      { type:'money',        min:5000000, label:'Uang $5.000.000' },
+      { type:'income',       min:5000,    label:'Pendapatan $5.000/hari' },
+    ],
+    president:[
+      'Ini... ini adalah momen yang\ntidak pernah saya bayangkan akan terjadi!',
+      'Saya yang tidak becus ini\nmenyaksikan Nusabox menjadi kota sempurna!',
+      'Tujuh puluh lima ribu jiwa bahagia,\nkebijakan yang bijak, dan kota yang makmur.',
+      'Kamu telah membuktikan bahwa\nNusabox layak dipimpin oleh pemimpin yang becus!',
+      'Terima kasih, Walikota.\nAnda jauh, JAUH lebih baik dari saya!',
+    ]
+  },
+];
 
 // -------------------- STATE --------------------
 const state = {
@@ -73,15 +543,20 @@ const state = {
   income: 0,
   expense: 0,
   level: 1,
-  // grid: {type, rotation, mesh}
+  missionLevel: 1,
+  freeMode: false,
+  _missionChecked: false,
+  _missionShowing: false,
+  landSize: 20,
+  _landBorderMesh: null,
   grid: [],
   buildings: [],     // {x,y,type,mesh}
   citizens: [],
   vehicles: [],
   pedestrians: [],
   selected: null,    // selected building tool key
-  placeRotation: 0,  // 0/1/2/3 = 0°/90°/180°/270° (steps of Math.PI/2)
-  pending: null,     // {gx, gz} — awaiting confirm click after first click
+  placeRotation: 0,  // 0/1/2/3 = 0 deg/90 deg/180 deg/270 deg (steps of Math.PI/2)
+  pending: null,     // {gx, gz} -- awaiting confirm click after first click
   selectedBuilding: null, // building selected for info panel
   minimapMode: 'normal',
   notifications: [],
@@ -90,6 +565,7 @@ const state = {
   jobs: { offered:0, taken:0 },
   homes: 0,
   treeCount: 0,
+  taxiPassengers: [],   // [{mesh, wx, wz, gx, gz, claimed, life, indicator}]
   tickSinceLastDay: 0,
   constructions: [],   // [{gx, gz, key, mesh, scaffMesh, progress, duration, rotation}]
   destructions: [],    // [{mesh, particles, t}]
@@ -116,7 +592,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// (no post-processing needed — TheoTown style uses direct render)
+// (no post-processing needed -- TheoTown style uses direct render)
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -155,8 +631,80 @@ scene.add(sun);
 const hemi = new THREE.HemisphereLight(0xd4eeff, 0x88cc66, 0.6);
 scene.add(hemi);
 
+// Moon directional light (blue-white, only active at night)
+const moon = new THREE.DirectionalLight(0x6688cc, 0);
+moon.position.set(-50, 60, -30);
+scene.add(moon);
+
+// ==================== DAY / NIGHT / WEATHER SYSTEM ====================
+// CYCLE: 10800 real-seconds (3 real hours at 1x speed)
+// Day portion : 7200s (2h)  -> clock 06:00--20:00
+// Night portion: 3600s (1h) -> clock 20:00--06:00
+// Rain: 5--15 min (300--900s), random chance every 2--10 min
+
+const DN = {
+  elapsed: 0,
+  CYCLE: 10800, DAY_END: 7200,
+  weather: 'clear',     // 'clear' | 'rain'
+  rainRemaining: 0,
+  nextWeather: 300,     // seconds until next weather roll
+  rainMesh: null, rainVerts: null, rainGeo: null,
+  get t(){ return this.elapsed / this.CYCLE; },
+  get isNight(){ return this.elapsed >= this.DAY_END; },
+  get dayT(){ return this.isNight ? 1 : this.elapsed / this.DAY_END; },
+  get nightT(){ return this.isNight ? (this.elapsed - this.DAY_END) / (this.CYCLE - this.DAY_END) : 0; },
+  get clockStr(){
+    if(!this.isNight){
+      const m = Math.floor(this.dayT * 840); // 14hx60 min, 06:00->20:00
+      return String(6+Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+    } else {
+      const m = Math.floor(this.nightT * 600); // 10hx60 min, 20:00->06:00
+      const h = (20+Math.floor(m/60))%24;
+      return String(h).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+    }
+  }
+};
+
+// Lighting keyframes over full cycle t∈[0,1]
+// [t, skyHex, fogHex, fogNear, fogFar, ambHex, ambInt, sunInt, moonInt]
+const _DN_KEYS = [
+  [0.000, 0xff9966, 0xffaa80,  70, 200, 0xff8855, 0.35, 0.40, 0.00], // 06:00 sunrise
+  [0.037, 0xffd0a0, 0xffdcbb,  75, 230, 0xffcc88, 0.65, 0.90, 0.00], // 07:00 morning glow
+  [0.083, 0x87ceeb, 0xa0d8f0,  85, 250, 0xffffff, 0.88, 1.30, 0.00], // 08:00 morning
+  [0.167, 0x4db8e8, 0x87ceeb,  95, 265, 0xffffff, 1.10, 1.60, 0.00], // 10:00 midday
+  [0.500, 0x44aae0, 0x87ceeb,  95, 265, 0xffffff, 1.10, 1.60, 0.00], // 13:00 afternoon
+  [0.580, 0x88bbdd, 0xaaccee,  85, 240, 0xffffff, 0.95, 1.30, 0.00], // 15:00
+  [0.620, 0xffaa55, 0xffbb88,  75, 220, 0xffcc88, 0.75, 0.90, 0.00], // 17:00 late afternoon
+  [0.650, 0xff6633, 0xff8855,  60, 190, 0xff9966, 0.45, 0.55, 0.00], // 18:30 sunset
+  [0.667, 0x220a14, 0x100510, 50, 160, 0x334477, 0.18, 0.00, 0.10], // 20:00 dusk->night
+  [0.700, 0x0a0820, 0x06050c,  70, 200, 0x1a2288, 0.13, 0.00, 0.28], // 21:00 night
+  [0.833, 0x080618, 0x06040f,  80, 225, 0x121a66, 0.11, 0.00, 0.32], // 00:00 midnight
+  [0.950, 0x080618, 0x060410,  80, 220, 0x121a66, 0.11, 0.00, 0.28], // 05:00 pre-dawn
+  [1.000, 0xff9966, 0xffaa80,  70, 200, 0xff8855, 0.35, 0.40, 0.00], // 06:00 sunrise (loop)
+];
+
+function initRainParticles(){
+  const N = 2500, SPREAD = 90, H = 55;
+  const pos = new Float32Array(N * 6);
+  for(let i=0; i<N; i++){
+    const x = rand(-SPREAD, SPREAD), y = rand(0, H), z = rand(-SPREAD, SPREAD);
+    const len = rand(0.2, 0.65);
+    const b = i*6;
+    pos[b]=x;     pos[b+1]=y;     pos[b+2]=z;
+    pos[b+3]=x-0.1; pos[b+4]=y-len; pos[b+5]=z+0.05;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xaabbdd, transparent: true, opacity: 0.45, depthWrite: false });
+  const mesh = new THREE.LineSegments(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  scene.add(mesh);
+  DN.rainMesh = mesh; DN.rainVerts = pos; DN.rainGeo = geo;
+}
+
 // ---- Procedural Grass Ground (no external assets, lightweight) ----
-// 1. Canvas texture: 128×128 green noise — baked once, zero per-frame cost
+// 1. Canvas texture: 128x128 green noise -- baked once, zero per-frame cost
 function makeGrassTexture(){
   const S = 128;
   const cv = document.createElement('canvas');
@@ -189,17 +737,34 @@ function makeGrassTexture(){
   return tex;
 }
 
-const grassTex = makeGrassTexture();
+// 2. Full-size green ground (always) — playable boundary shown by border mesh only
+const groundMat = new THREE.MeshLambertMaterial({ map: makeGrassTexture(), polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 });
+let ground = null;
+let gridHelper = null;
+function updateGroundAndGrid(){
+  if (ground){ scene.remove(ground); ground.geometry.dispose(); }
+  if (gridHelper){ scene.remove(gridHelper); }
+  // Ground always covers full GRID so it stays green everywhere
+  const fullSz = GRID * TILE;
+  const groundGeo = new THREE.PlaneGeometry(fullSz, fullSz, 1, 1);
+  groundMat.map.repeat.set(20, 20);
+  groundMat.map.needsUpdate = true;
+  ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  // Grid lines only over the playable land area, centered at origin
+  const playSz = state.landSize * TILE;
+  gridHelper = new THREE.GridHelper(playSz, state.landSize, 0x000000, 0x000000);
+  gridHelper.material.opacity = 0.10;
+  gridHelper.material.transparent = true;
+  gridHelper.position.y = 0.02;
+  scene.add(gridHelper);
+}
+// Initial ground
+updateGroundAndGrid();
 
-// 2. Base ground plane — raycast target + textured surface
-const groundGeo = new THREE.PlaneGeometry(GRID*TILE, GRID*TILE, 1, 1);
-const groundMat = new THREE.MeshLambertMaterial({ map: grassTex, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 });
-const ground = new THREE.Mesh(groundGeo, groundMat);
-ground.rotation.x = -Math.PI/2;
-ground.receiveShadow = true;
-scene.add(ground);
-
-// 3. Instanced grass blades — 2000 tiny quads using InstancedMesh (1 draw call)
+// 3. Instanced grass blades -- 2000 tiny quads using InstancedMesh (1 draw call)
 (function spawnGrassBlades(){
   const BLADE_COUNT = 2000;
   const bladeGeo = new THREE.PlaneGeometry(0.06, 0.18);
@@ -227,7 +792,7 @@ scene.add(ground);
   for (let i = 0; i < BLADE_COUNT; i++){
     const tx = (Math.random()-0.5)*TOTAL;
     const tz = (Math.random()-0.5)*TOTAL;
-    // Skip center (city area) — thin density near 0,0
+    // Skip center (city area) -- thin density near 0,0
     const dist = Math.sqrt(tx*tx+tz*tz);
     if (dist < 4) { iMesh.setMatrixAt(i, new THREE.Matrix4()); continue; }
     dummy.position.set(tx, 0, tz);
@@ -242,14 +807,9 @@ scene.add(ground);
   scene.add(iMesh);
 })();
 
-// Grid lines
-const gridHelper = new THREE.GridHelper(GRID*TILE, GRID, 0x000000, 0x000000);
-gridHelper.material.opacity = 0.10;
-gridHelper.material.transparent = true;
-gridHelper.position.y = 0.02;
-scene.add(gridHelper);
+// Grid lines handled by updateGroundAndGrid()
 
-// Decorative trees — loaded from model/tree/*.glb, placed randomly
+// Decorative trees -- loaded from model/tree/*.glb, placed randomly
 const gltfLoader = new GLTFLoader();
 const TREE_PATHS = [
   { path: './model/tree/small_pine.glb', targetH: 0.30 },
@@ -276,7 +836,7 @@ function loadTreeModels(){
       root.position.z -= center.z;
       root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
       const finalH = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y;
-      console.log(`[tree] loaded ${path} — final height ${finalH.toFixed(2)}`);
+      console.log(`[tree] loaded ${path} -- final height ${finalH.toFixed(2)}`);
       TREE_TEMPLATES.push(root);
       if (--pending === 0){ treesLoaded = true; /* auto-spawn disabled */ }
     }, undefined, (err) => {
@@ -304,7 +864,7 @@ function makeTreeMesh(){
   }
   const tpl = choice(TREE_TEMPLATES);
   const clone = tpl.clone(true);
-  // Random scale variation (0.8 – 1.2×)
+  // Random scale variation (0.8 -- 1.2x)
   const s = rand(0.8, 1.2);
   clone.scale.setScalar(s);
   // Random Y rotation
@@ -327,7 +887,7 @@ function spawnDecorativeTrees(){
   state.treeGroup = treeGroup;
 }
 
-// Called once GLB templates are ready — replace procedural trees with GLB
+// Called once GLB templates are ready -- replace procedural trees with GLB
 function respawnDecorativeTrees(){
   if (state.treeGroup){
     scene.remove(state.treeGroup);
@@ -336,62 +896,18 @@ function respawnDecorativeTrees(){
   spawnDecorativeTrees();
 }
 
-// spawnDecorativeTrees() disabled — trees placed manually in-game
+// spawnDecorativeTrees() disabled -- trees placed manually in-game
 
-// Cloud particles — load from GLB model
+// Cloud particles -- procedural spheres
 const cloudGroup = new THREE.Group();
-let cloudTemplate = null;
-
-// Load fluffy cloud model
-gltfLoader.load('./model/fluffy_cloud.glb', (gltf) => {
-  cloudTemplate = gltf.scene;
-  // Scale and setup cloud template
-  const box = new THREE.Box3().setFromObject(cloudTemplate);
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (maxDim > 0.001) {
-    cloudTemplate.scale.setScalar(4.0 / maxDim); // Scale to ~4 units
-  }
-  // Center the cloud
-  const box2 = new THREE.Box3().setFromObject(cloudTemplate);
-  const center = box2.getCenter(new THREE.Vector3());
-  cloudTemplate.position.x -= center.x;
-  cloudTemplate.position.y -= center.y;
-  cloudTemplate.position.z -= center.z;
-  
-  // Setup materials for cloud meshes
-  cloudTemplate.traverse(obj => {
-    if (obj.isMesh) {
-      if (obj.material) {
-        obj.material = obj.material.clone();
-        obj.material.transparent = true;
-        obj.material.opacity = 0.85;
-      }
-      obj.castShadow = false;
-      obj.receiveShadow = false;
-    }
-  });
-  
-  // Create initial clouds using the template
-  for (let i = 0; i < 14; i++) {
-    const c = cloudTemplate.clone();
-    c.position.set(rand(-HALF, HALF), rand(22, 40), rand(-HALF, HALF));
-    c.scale.multiplyScalar(rand(0.8, 2.0));
-    c.rotation.y = rand(0, Math.PI * 2);
-    cloudGroup.add(c);
-  }
-}, undefined, (err) => {
-  console.warn('Failed to load cloud model, using fallback spheres', err);
-  // Fallback to procedural clouds if GLB fails
-  const cloudGeo = new THREE.SphereGeometry(2, 8, 6);
-  const cloudMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.82 });
-  for (let i=0;i<14;i++){
-    const c = new THREE.Mesh(cloudGeo, cloudMat);
-    c.position.set(rand(-HALF, HALF), rand(22, 40), rand(-HALF, HALF));
-    c.scale.set(rand(1,2.5), rand(0.5,1), rand(1,2.5));
-    cloudGroup.add(c);
-  }
-});
+const cloudGeo = new THREE.SphereGeometry(2, 8, 6);
+const cloudMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.82 });
+for (let i=0;i<14;i++){
+  const c = new THREE.Mesh(cloudGeo, cloudMat);
+  c.position.set(rand(-HALF, HALF), rand(22, 40), rand(-HALF, HALF));
+  c.scale.set(rand(1,2.5), rand(0.5,1), rand(1,2.5));
+  cloudGroup.add(c);
+}
 
 scene.add(cloudGroup);
 
@@ -446,7 +962,15 @@ function worldToGrid(wx, wz){
     z: Math.floor((wz + HALF) / TILE)
   };
 }
-function inBounds(gx,gz){ return gx>=0 && gx<GRID && gz>=0 && gz<GRID; }
+function getLandBounds(){
+  const half = Math.floor(state.landSize / 2);
+  const mid  = Math.floor(GRID / 2);
+  return { min: mid - half, max: mid - half + state.landSize };
+}
+function inBounds(gx,gz){
+  const { min, max } = getLandBounds();
+  return gx >= min && gx < max && gz >= min && gz < max;
+}
 
 // ===================== AUDIO SYSTEM =====================
 // Audio system with external music files for menu and gameplay
@@ -461,7 +985,7 @@ const Audio = (() => {
   let currentMusic = null; // Current HTMLAudioElement
   let currentMusicType = null; // 'menu' or 'gameplay'
 
-  // Preload music - use HTMLAudioElement to avoid name conflict
+  // Preload music
   const menuMusic = new window.Audio();
   menuMusic.src = 'music/main-menu.mp3';
   menuMusic.loop = true;
@@ -470,7 +994,76 @@ const Audio = (() => {
   const gameplayMusic = new window.Audio();
   gameplayMusic.src = 'music/gameplay.mp3';
   gameplayMusic.loop = true;
-  gameplayMusic.volume = 0.35;
+  gameplayMusic.volume = 0.20;  // lowered so sfx ambience is audible
+
+  // --- SFX Ambience tracks ---
+  const _sfxTracks = {
+    morning: new window.Audio('music/sfx/morning.mp3'),
+    evening: new window.Audio('music/sfx/evening.mp3'),
+    night:   new window.Audio('music/sfx/night.mp3'),
+    rain:    new window.Audio('music/sfx/rain.mp3'),
+  };
+  for (const tr of Object.values(_sfxTracks)){
+    tr.loop = true;
+    tr.volume = 0;
+  }
+  let _currentSfxKey = null;
+  let _sfxFadeTimer = null;
+
+  // Determine which sfx track should be playing now
+  function _sfxDesired(){
+    if (typeof DN === 'undefined' || !DN) return null;
+    if (DN.weather === 'rain') return 'rain';
+    if (DN.isNight) return 'night';
+    // dayT: 0=06:00, 1=20:00
+    if (DN.dayT < 0.43) return 'morning';   // 06:00-12:00
+    return 'evening';                        // 12:00-20:00
+  }
+
+  function _sfxCrossfade(){
+    const desired = _sfxDesired();
+    if (!_SET.sound){ // mute all if sound off
+      for (const [k, tr] of Object.entries(_sfxTracks)) tr.volume = 0;
+      _currentSfxKey = null;
+      return;
+    }
+    if (desired === _currentSfxKey) return;
+
+    // Fade out old
+    if (_currentSfxKey && _sfxTracks[_currentSfxKey]){
+      const old = _sfxTracks[_currentSfxKey];
+      const fadeOut = setInterval(() => {
+        old.volume = Math.max(0, old.volume - 0.02);
+        if (old.volume <= 0){ old.pause(); old.currentTime = 0; clearInterval(fadeOut); }
+      }, 60);
+    }
+
+    _currentSfxKey = desired;
+
+    // Fade in new
+    if (desired && _sfxTracks[desired]){
+      const tr = _sfxTracks[desired];
+      tr.volume = 0;
+      const target = desired === 'rain' ? 0.55 : 0.35;
+      tr.play().catch(()=>{});
+      const fadeIn = setInterval(() => {
+        tr.volume = Math.min(target, tr.volume + 0.015);
+        if (tr.volume >= target) clearInterval(fadeIn);
+      }, 60);
+    }
+  }
+
+  // Call every ~5 game seconds from updateDayNight
+  function tickSfxAmbience(){
+    _sfxCrossfade();
+  }
+
+  function stopAllSfxAmbience(){
+    for (const tr of Object.values(_sfxTracks)){
+      tr.pause(); tr.currentTime = 0; tr.volume = 0;
+    }
+    _currentSfxKey = null;
+  }
 
   function getCtx(){
     if (!ctx){
@@ -519,6 +1112,7 @@ const Audio = (() => {
   // --- Music playback from external files ---
   function playMenuMusic(){
     stopAllMusic();
+    stopAllSfxAmbience(); // no sfx in main menu
     currentMusic = menuMusic;
     currentMusicType = 'menu';
     const promise = menuMusic.play();
@@ -537,6 +1131,8 @@ const Audio = (() => {
       promise.catch(err => console.log('Gameplay music autoplay blocked'));
     }
     musicPlaying = true;
+    // Start sfx ambience on gameplay
+    setTimeout(() => _sfxCrossfade(), 1000);
   }
 
   function stopAllMusic(){
@@ -546,6 +1142,11 @@ const Audio = (() => {
     gameplayMusic.currentTime = 0;
     currentMusic = null;
     musicPlaying = false;
+  }
+
+  function stopAllMusicAndSfx(){
+    stopAllMusic();
+    stopAllSfxAmbience();
   }
 
   function startMusic(){
@@ -633,20 +1234,39 @@ const Audio = (() => {
   function setSfxVol(v)  { getCtx(); sfxGain.gain.value   = v; }
   function setMasterVol(v){ getCtx(); masterGain.gain.value = v; }
 
+  // Sound enabled/disabled toggle
+  function setEnabled(on){
+    if(on){
+      menuMusic.volume = 0.35;
+      gameplayMusic.volume = 0.20;
+      if(masterGain) masterGain.gain.value = 0.6;
+      if(currentMusicType === 'menu' && !musicPlaying) playMenuMusic();
+      if(currentMusicType === 'gameplay' && !musicPlaying) playGameplayMusic();
+      _sfxCrossfade(); // restore sfx ambience
+    } else {
+      menuMusic.volume = 0;
+      gameplayMusic.volume = 0;
+      if(masterGain) masterGain.gain.value = 0;
+      stopAllSfxAmbience();
+    }
+  }
+
   // Boot: start on first user interaction
   function init(){
-    playMenuMusic(); // Start with menu music
+    playMenuMusic();
     startAmbient();
+    setEnabled(_SET.sound);
   }
 
   return { init, startMusic, stopMusic, playMenuMusic, playGameplayMusic, stopAllMusic,
            playPlace, playBulldoze, playError,
            playNotify, playClick, playLevelUp, playRotate,
-           setMusicVol, setSfxVol, setMasterVol };
+           setMusicVol, setSfxVol, setMasterVol, setEnabled,
+           tickSfxAmbience, stopAllSfxAmbience, stopAllMusicAndSfx };
 })();
 
 // -------------------- BUILDING MESH FACTORY --------------------
-// TheoTown style: MeshLambertMaterial — lightweight, flat-diffuse, bright
+// TheoTown style: MeshLambertMaterial -- lightweight, flat-diffuse, bright
 const MAT_CACHE = new Map();
 
 // -------------------- GLB MODEL LOADER --------------------
@@ -660,6 +1280,10 @@ const GLB_MODELS = {
   com_mall:     { path: './model/commerce/mall.glb',        scaleBoost: 1.5 },
   ind_office:   { path: './model/commerce/office.glb',      scaleBoost: 1.6 },
   skyscraper:   { path: './model/commerce/skyscrapper.glb', scaleBoost: 2.0 },
+  skyscraper2:  { path: './model/commerce/skyscrapper.glb', scaleBoost: 2.5 },
+  skyscraper3:  { path: './model/commerce/skyscrapper.glb', scaleBoost: 3.2 },
+  bank:         { path: './model/commerce/mall.glb',        scaleBoost: 1.8 },
+  gas_station:  { path: './model/commerce/shop.glb',        scaleBoost: 0.9 },
   ind_factory:  { path: './model/industry/factory.glb',     scaleBoost: 1.4 },
   school:       { path: './model/public/school.glb',        scaleBoost: 2.6 },
   hospital:     { path: './model/public/hospital.glb',      scaleBoost: 2.2 },
@@ -682,13 +1306,20 @@ const CAR_PATHS = [
 ];
 const CAR_TEMPLATES = [];
 
+// -------------------- TAXI MODEL LOADER --------------------
+const TAXI_PATHS = [
+  { path: './model/car/taxi1.glb', rotY: Math.PI / 2 },
+  { path: './model/car/taxi2.glb', rotY: Math.PI / 2 },
+];
+const TAXI_TEMPLATES = [];
+
 function loadCarModels(){
   let pending = CAR_PATHS.length;
   for (const entry of CAR_PATHS){
     const { path, rotY } = entry;
     gltfLoader.load(path, (gltf) => {
       const root = gltf.scene;
-      // Normalize size: longest XZ dimension → 0.88 world units
+      // Normalize size: longest XZ dimension -> 0.88 world units
       for (let pass = 0; pass < 2; pass++){
         const box = new THREE.Box3().setFromObject(root);
         const size = box.getSize(new THREE.Vector3());
@@ -714,7 +1345,7 @@ function loadCarModels(){
       wrapper.add(corrector);
 
       const sz = new THREE.Box3().setFromObject(wrapper).getSize(new THREE.Vector3());
-      console.log(`[car] loaded ${path} — ${sz.x.toFixed(2)}×${sz.z.toFixed(2)}×${sz.y.toFixed(2)}`);
+      console.log(`[car] loaded ${path} -- ${sz.x.toFixed(2)}x${sz.z.toFixed(2)}x${sz.y.toFixed(2)}`);
       CAR_TEMPLATES.push(wrapper);
       pending--;
     }, undefined, (err) => {
@@ -724,14 +1355,57 @@ function loadCarModels(){
   }
 }
 
+function loadTaxiModels(){
+  for (const entry of TAXI_PATHS){
+    const { path, rotY } = entry;
+    gltfLoader.load(path, (gltf) => {
+      const root = gltf.scene;
+      for (let pass = 0; pass < 2; pass++){
+        const box = new THREE.Box3().setFromObject(root);
+        const sz  = box.getSize(new THREE.Vector3());
+        const maxXZ = Math.max(sz.x, sz.z);
+        if (maxXZ < 0.001) break;
+        root.scale.multiplyScalar(0.88 / maxXZ);
+      }
+      const box2 = new THREE.Box3().setFromObject(root);
+      const center = box2.getCenter(new THREE.Vector3());
+      root.position.x -= center.x;
+      root.position.z -= center.z;
+      root.position.y -= box2.min.y;
+      root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+      const corrector = new THREE.Group();
+      corrector.rotation.y = rotY;
+      corrector.add(root);
+      const wrapper = new THREE.Group();
+      wrapper.add(corrector);
+      TAXI_TEMPLATES.push(wrapper);
+      console.log(`[taxi] loaded ${path}`);
+    }, undefined, (err) => {
+      console.warn(`[taxi] failed ${path}`, err);
+    });
+  }
+}
+
+function makeTaxi(){
+  if (TAXI_TEMPLATES.length > 0){
+    return choice(TAXI_TEMPLATES).clone(true);
+  }
+  // Fallback: yellow car
+  const g = makeCar();
+  g.traverse(o => { if (o.isMesh && o.material && o.material.color) o.material = o.material.clone(); });
+  g.traverse(o => { if (o.isMesh && o.material) o.material.color.setHex(0xffcc00); });
+  return g;
+}
+
 const GLB_CACHE = new Map();
 const GLB_PENDING = new Map();
-// Now safe to call — gltfLoader and MAT_CACHE are both initialized
+// Now safe to call -- gltfLoader and MAT_CACHE are both initialized
 loadTreeModels();
 loadCarModels();
+loadTaxiModels();
 // Preload water animation model
 loadGLBTemplate('water_tile').catch(err => console.warn('Water animation model not loaded:', err));
-// decorative trees disabled — trees placed manually in-game
+// decorative trees disabled -- trees placed manually in-game
 
 function loadGLBTemplate(key){
   if (GLB_CACHE.has(key)) return Promise.resolve(GLB_CACHE.get(key));
@@ -754,7 +1428,7 @@ function loadGLBTemplate(key){
       const dims = box.getSize(new THREE.Vector3());
 
       if (key === 'road'){
-        // Roads must fill TILE×TILE exactly (no gaps) — scale each axis independently
+        // Roads must fill TILExTILE exactly (no gaps) -- scale each axis independently
         const sx = dims.x > 0.001 ? targetFootprint / dims.x : 1;
         const sz = dims.z > 0.001 ? targetFootprint / dims.z : 1;
         const sy = Math.max(sx, sz); // keep Y proportional to largest XZ scale
@@ -795,7 +1469,7 @@ function makeGLBBuilding(key, b){
   const sz = (def && def.size) || 1;
   const isRoad = key === 'road';
 
-  // Placeholder — skip for roads (they're flat, placeholder pokes through ground)
+  // Placeholder -- skip for roads (they're flat, placeholder pokes through ground)
   if (!isRoad){
     const placeholder = new THREE.Mesh(
       new THREE.BoxGeometry(TILE*sz*0.6, (b.h||1), TILE*sz*0.6),
@@ -816,7 +1490,7 @@ function makeGLBBuilding(key, b){
       if (o.isMesh){
         o.castShadow = true;
         o.receiveShadow = true;
-        // Roads sit on ground — push them forward in depth to avoid z-fight
+        // Roads sit on ground -- push them forward in depth to avoid z-fight
         if (isRoad){
           o.material = o.material.clone();
           o.material.polygonOffset = true;
@@ -946,7 +1620,7 @@ function makeHouse(b){
   addBox(g, W, BODY, D, 0, 0.12+BODY/2, 0, mat(b.color, {r:0.85}));
   // exterior plaster lines (horizontal band)
   addBox(g, W+0.02, 0.06, D+0.02, 0, 0.12+BODY*0.45, 0, mat(b.accent, {r:0.8}));
-  // GABLE ROOF via ExtrudeGeometry — triangle extruded along D axis
+  // GABLE ROOF via ExtrudeGeometry -- triangle extruded along D axis
   const roofH = 0.65, roofBase = 0.12+BODY;
   gableRoof(g, W+EAVE*2, roofH, D+EAVE*2, 0, roofBase, 0, mat(b.accent, {r:0.65}));
   // gable end walls (fill triangle above body)
@@ -1335,7 +2009,7 @@ function makeWind(b){
   // hub
   const hubG = new THREE.Group();
   addCyl(hubG, 0.07, 0.07, 0.12, 10, mat(0xfafafa), 0, 0, 0, Math.PI/2, 0, 0);
-  // 3 blades — each is a tapered box with slight twist feel
+  // 3 blades -- each is a tapered box with slight twist feel
   for (let i=0; i<3; i++){
     const bladeGroup = new THREE.Group();
     // blade body - tapered from root to tip
@@ -1558,7 +2232,7 @@ function makeSkyscraper3(b){
   const g = new THREE.Group();
   const W = TILE*2.8, H = b.h||16;
   const gMat = new THREE.MeshLambertMaterial({ color:0xff8844, transparent:true, opacity:0.5 });
-  // Twisted look — 3 rotated blocks
+  // Twisted look -- 3 rotated blocks
   for (let i=0;i<8;i++){
     const rot = i*0.08;
     const w = W*(0.85 - i*0.05);
@@ -1585,19 +2259,21 @@ function makeSkyscraper3(b){
 function makeRailway(){
   const g = new THREE.Group();
   const S = TILE * 0.98;
-  // Ballast (gravel bed)
-  addBox(g, S, 0.07, S, 0, 0.035, 0, mat(0x888880));
-  // Sleepers (cross ties)
+  const trackW = S * 0.35; // narrower track width
+  // Ballast (gravel bed) -- thinner, narrower
+  addBox(g, trackW, 0.04, S, 0, 0.02, 0, mat(0x888880));
+  // Sleepers (cross ties) -- thinner and shorter
   const sleeperMat_ = mat(0x5a3a1a);
-  const nSleepers = 5;
+  const nSleepers = 6;
   for (let i=0; i<nSleepers; i++){
-    const zPos = -S*0.4 + (i/(nSleepers-1))*S*0.8;
-    addBox(g, S*0.9, 0.06, 0.15, 0, 0.09, zPos, sleeperMat_);
+    const zPos = -S*0.44 + (i/(nSleepers-1))*S*0.88;
+    addBox(g, trackW * 1.1, 0.04, 0.09, 0, 0.055, zPos, sleeperMat_);
   }
-  // Rails
+  // Rails -- thin and close together
   const railMat_ = mat(0xc0c0c0, {r:0.3, m:0.6});
-  addBox(g, 0.06, 0.06, S*0.95, -S*0.22, 0.12, 0, railMat_);
-  addBox(g, 0.06, 0.06, S*0.95,  S*0.22, 0.12, 0, railMat_);
+  const railGap = trackW * 0.38;
+  addBox(g, 0.04, 0.04, S*0.96, -railGap, 0.075, 0, railMat_);
+  addBox(g, 0.04, 0.04, S*0.96,  railGap, 0.075, 0, railMat_);
   g.userData.isRailway = true;
   return g;
 }
@@ -1616,7 +2292,7 @@ function makePark(b){
   addSphere(g, 0.07, 8, emissiveMat(0xbae6fd, 0.6), 0, 0.57, 0);
   // water in fountain
   addCyl(g, 0.3, 0.3, 0.02, 16, glassMat(0x60a5fa, 0.8), 0, 0.07, 0);
-  // trees — use GLB if loaded, else procedural
+  // trees -- use GLB if loaded, else procedural
   function parkTree(x, z){
     const t = makeTreeMesh();
     t.scale.multiplyScalar(rand(0.55, 0.75)); // fit inside park tile
@@ -1906,10 +2582,10 @@ function makeBuildingMesh(key){
     case 'com_mall':    g = makeGLBBuilding('com_mall', b); break;
     case 'ind_office':  g = makeGLBBuilding('ind_office', b); break;
     case 'skyscraper':  g = makeGLBBuilding('skyscraper', b); break;
-    case 'skyscraper2': g = makeSkyscraper2(b); break;
-    case 'skyscraper3': g = makeSkyscraper3(b); break;
-    case 'bank':        g = makeBank(b); break;
-    case 'gas_station': g = makeGasStation(b); break;
+    case 'skyscraper2': g = makeGLBBuilding('skyscraper2', b); break;
+    case 'skyscraper3': g = makeGLBBuilding('skyscraper3', b); break;
+    case 'bank':        g = makeGLBBuilding('bank', b); break;
+    case 'gas_station': g = makeGLBBuilding('gas_station', b); break;
     case 'ind_factory': g = makeGLBBuilding('ind_factory', b); break;
     case 'power_coal':  g = makeGLBBuilding('power_coal', b); break;
     case 'power_solar': g = makeGLBBuilding('power_solar', b); break;
@@ -1934,6 +2610,89 @@ function makeBuildingMesh(key){
 
 // -------------------- PLACEMENT --------------------
 function getSize(key){ return (BUILDINGS[key] && BUILDINGS[key].size) || 1; }
+
+// Per-type light config: [color, intensity at full night, height offset]
+// Night light config: [color, maxIntensity, worldY, distWorld, decay]
+// worldY = absolute world-space Y (above the building roof).
+// Lights are added to SCENE (not mesh children) so geometry never blocks them.
+// TILE=2, building h values from BUILDINGS const.
+// Emissive window color and PointLight halo per building type
+// [emissiveHex, pointLightHex, midHeight, radius]
+const _NIGHT_LIGHT_CFG = {
+  res_low:     { em: 0xffcc66, lc: 0xffdd88, h: 0.7,  r: 6  },
+  res_med:     { em: 0xffdd99, lc: 0xffeebb, h: 1.4,  r: 8  },
+  res_high:    { em: 0xffeebb, lc: 0xfff0cc, h: 2.5,  r: 10 },
+  com_shop:    { em: 0xffbb33, lc: 0xffcc44, h: 0.8,  r: 8  },
+  com_mall:    { em: 0xff8822, lc: 0xff9933, h: 1.2,  r: 14 },
+  ind_office:  { em: 0xaaccff, lc: 0xccddff, h: 2.0,  r: 11 },
+  bank:        { em: 0xffdd66, lc: 0xffee88, h: 1.8,  r: 10 },
+  gas_station: { em: 0xeeffee, lc: 0xffffff, h: 0.8,  r: 10 },
+  skyscraper:  { em: 0x8899ff, lc: 0xaaccff, h: 5.0,  r: 14 },
+  skyscraper2: { em: 0x22eecc, lc: 0x44ffee, h: 6.5,  r: 14 },
+  skyscraper3: { em: 0xff44ff, lc: 0xff88ff, h: 8.0,  r: 16 },
+  ind_factory: { em: 0xff6600, lc: 0xff7700, h: 1.0,  r: 10 },
+  power_coal:  { em: 0xff7722, lc: 0xff8833, h: 1.2,  r: 12 },
+  power_solar: { em: 0xffff88, lc: 0xffffaa, h: 0.3,  r: 12 },
+  power_wind:  { em: 0x88bbff, lc: 0xaaddff, h: 2.5,  r: 9  },
+  water_pump:  { em: 0x22aaff, lc: 0x44ccff, h: 0.8,  r: 7  },
+  park:        { em: 0x66ee66, lc: 0x88ff88, h: 0.5,  r: 7  },
+  school:      { em: 0xffff88, lc: 0xffffaa, h: 1.0,  r: 10 },
+  hospital:    { em: 0xeeffff, lc: 0xffffff, h: 1.5,  r: 13 },
+  police:      { em: 0x2255ff, lc: 0x3366ff, h: 0.9,  r: 9  },
+  fire:        { em: 0xff3311, lc: 0xff4422, h: 0.9,  r: 9  },
+  bus_stop:    { em: 0xffdd33, lc: 0xffee44, h: 0.5,  r: 6  },
+  metro:       { em: 0x2299ff, lc: 0x44aaff, h: 1.2,  r: 10 },
+  airport:     { em: 0xeeeeff, lc: 0xffffff, h: 1.2,  r: 20 },
+};
+
+function addBuildingNightLight(bEntry){
+  const key = bEntry.type;
+  const noLight = ['road','railway','water_tile','bulldoze'];
+  if(noLight.includes(key) || !bEntry.mesh) return;
+  const cfg = _NIGHT_LIGHT_CFG[key];
+
+  // Collect emissive-capable materials for window-glow effect
+  const emMats = [];
+  bEntry.mesh.traverse(o => {
+    if(!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for(const m of mats){
+      if(m && m.emissive !== undefined && !emMats.includes(m)){
+        emMats.push(m);
+      }
+    }
+  });
+  bEntry.emMats = emMats;
+  bEntry.emColor = cfg ? cfg.em : 0xffeecc;
+
+  if(!cfg) return;
+
+  // PointLight halo: 4 side lights at mid-wall height for cross-illumination
+  const wx = bEntry.mesh.position.x;
+  const wz = bEntry.mesh.position.z;
+  const size = getSize(key);
+  const halfSpan = size * TILE * 0.5;
+  // Intensity high enough to be visible without physical units
+  const intensity = 0;  // start at 0; ramped by updateDayNight
+  const maxInt = 1.5;
+
+  const offsets = [
+    [halfSpan + 0.5, cfg.h, 0],
+    [-halfSpan - 0.5, cfg.h, 0],
+    [0, cfg.h,  halfSpan + 0.5],
+    [0, cfg.h, -halfSpan - 0.5],
+  ];
+  const lights = [];
+  for(let i = 0; i < offsets.length; i++){
+    const [ox, oy, oz] = offsets[i];
+    const light = new THREE.PointLight(cfg.lc, intensity, cfg.r, 1);
+    light.castShadow = false;
+    light.position.set(wx + ox, oy, wz + oz);
+    scene.add(light);
+    lights.push({ light, maxInt });
+  }
+  bEntry.nightLights = lights;
+}
 
 // Centre-of-footprint world position for a building anchored at top-left (gx, gz) of size N
 function footprintCenterWorld(gx, gz, size){
@@ -1974,7 +2733,7 @@ function makeScaffoldMesh(key){
   const h = Math.max(0.4, (b.h || 1) * 0.5);
   const g = new THREE.Group();
 
-  // Wooden frame — orange/yellow scaffold poles
+  // Wooden frame -- orange/yellow scaffold poles
   const poleMat = new THREE.MeshLambertMaterial({ color: 0xffaa33 });
   const planMat = new THREE.MeshLambertMaterial({ color: 0xccaa66, transparent: true, opacity: 0.7 });
 
@@ -2005,7 +2764,7 @@ function makeScaffoldMesh(key){
     });
   }
 
-  // Tarp / wrap — semi-transparent blue-green panel
+  // Tarp / wrap -- semi-transparent blue-green panel
   const tarpGeo = new THREE.BoxGeometry(w, h, w);
   const tarpMat = new THREE.MeshLambertMaterial({ color: 0x44aacc, transparent: true, opacity: 0.22, side: THREE.DoubleSide });
   const tarp = new THREE.Mesh(tarpGeo, tarpMat);
@@ -2087,7 +2846,7 @@ function updateConstructions(dt){
     c.progress += dt * mult;
     const pct = Math.min(1, c.progress / c.duration);
 
-    // Rise-up effect: building mesh scales from 0 → 1 on Y as progress goes 0.6→1.0
+    // Rise-up effect: building mesh scales from 0 -> 1 on Y as progress goes 0.6->1.0
     if (c.mesh && pct > 0.6){
       const riseT = (pct - 0.6) / 0.4;
       c.mesh.scale.y = riseT;
@@ -2095,7 +2854,7 @@ function updateConstructions(dt){
     }
 
     if (pct >= 1){
-      // Construction complete — remove scaffold, finalize building
+      // Construction complete -- remove scaffold, finalize building
       if (c.scaffMesh){ scene.remove(c.scaffMesh); }
       if (c.mesh){
         c.mesh.scale.y = 1;
@@ -2105,7 +2864,9 @@ function updateConstructions(dt){
       // Register in buildings & grid
       const b = BUILDINGS[c.key];
       const size = getSize(c.key);
-      state.buildings.push({ x: c.gx, z: c.gz, type: c.key, mesh: c.mesh });
+      const bEntry = { x: c.gx, z: c.gz, type: c.key, mesh: c.mesh };
+      state.buildings.push(bEntry);
+      addBuildingNightLight(bEntry);
       for (let dx=0; dx<size; dx++){
         for (let dz=0; dz<size; dz++){
           const nx = c.gx+dx, nz = c.gz+dz;
@@ -2117,6 +2878,7 @@ function updateConstructions(dt){
       }
       if (c.key === 'road') updateRoadOrientations(c.gx, c.gz);
       recalcStats();
+      CitizenSim.onBuildingChanged();
       notify(`${b.name} complete!`, `Construction finished at (${c.gx},${c.gz}).`, 'success');
       state.constructions.splice(i, 1);
     }
@@ -2156,12 +2918,15 @@ function placeBuilding(key, gx, gz){
       }
     }
     state.money -= b.cost;
-    state.buildings.push({ x:gx, z:gz, type:key, mesh });
+    const bEntry = { x:gx, z:gz, type:key, mesh };
+    state.buildings.push(bEntry);
+    addBuildingNightLight(bEntry);
     if (key === 'road') updateRoadOrientations(gx, gz);
     if (key === 'railway') updateRailwayOrientations(gx, gz);
     if (key === 'water_tile') updateWaterMerge(gx, gz);
     Audio.playPlace();
     recalcStats();
+    CitizenSim.onBuildingChanged();
     return true;
   }
 
@@ -2182,7 +2947,7 @@ function placeBuilding(key, gx, gz){
   scaffMesh.rotation.y = rotation * Math.PI / 2;
   scene.add(scaffMesh);
 
-  // Real building mesh — hidden (scale.y=0) until construction progresses
+  // Real building mesh -- hidden (scale.y=0) until construction progresses
   const mesh = makeBuildingMesh(key);
   let meshBaseH = 1;
   if (mesh){
@@ -2236,6 +3001,14 @@ function bulldoze(gx, gz){
     originCell.mesh.traverse(o=>{ if (o.isMesh && o.geometry){ o.geometry.dispose(); }});
   }
 
+  // Remove night lights from bulldozed building
+  const bEntry = state.buildings.find(b=>b.x===og.gx && b.z===og.gz);
+  if(bEntry && bEntry.nightLights){
+    for(const {light} of bEntry.nightLights) scene.remove(light);
+    bEntry.nightLights = null;
+  }
+  if(bEntry) bEntry.emMats = null;
+
   state.buildings = state.buildings.filter(b=>!(b.x===og.gx && b.z===og.gz));
   // clear all occupied tiles
   for (let dx=0; dx<size; dx++){
@@ -2253,6 +3026,7 @@ function bulldoze(gx, gz){
   }
   recalcStats();
   Audio.playBulldoze();
+  CitizenSim.onBuildingChanged();
   return true;
 }
 
@@ -2268,7 +3042,7 @@ function updateRoadOrientations(gx, gz){
     if (c.type!=='road' || !c.mesh) return;
     const n = neighbors(x,z);
     const horizontal = (n.e||n.w) && !(n.n||n.s);
-    // GLB road: rotate 90° for horizontal orientation
+    // GLB road: rotate 90 deg for horizontal orientation
     c.mesh.rotation.y = horizontal ? Math.PI/2 : 0;
     // Legacy line support (procedural fallback)
     if (c.mesh.userData.line){
@@ -2338,55 +3112,425 @@ function createCitizen(homeBuilding){
   return c;
 }
 
+// ==================== CITIZEN LIFE SIMULATION ====================
+// Job roles -- maps to building types + animation activities + schedule
+const CITIZEN_ROLES = {
+  office_worker: {
+    buildings: ['ind_office','bank'],
+    activities: ['businessman','briefcase','coffee','phone','walk'],
+    speed: 1.0,
+    schedule: 'office',       // morning→work→evening
+  },
+  factory_worker: {
+    buildings: ['ind_factory'],
+    activities: ['walk','phone','coffee'],
+    speed: 1.0,
+    schedule: 'office',
+  },
+  shopkeeper: {
+    buildings: ['com_shop','com_mall'],
+    activities: ['shopping','shoulder_bag','walk','phone'],
+    speed: 0.9,
+    schedule: 'retail',       // all day
+  },
+  student: {
+    buildings: ['school'],
+    activities: ['backpack','child','headphones','walk'],
+    speed: 1.15,
+    schedule: 'school',       // morning→school→afternoon off
+    isChild: true,
+  },
+  doctor: {
+    buildings: ['hospital'],
+    activities: ['walk','phone','briefcase'],
+    speed: 1.0,
+    schedule: 'office',
+  },
+  police: {
+    buildings: ['police'],
+    activities: ['walk','phone'],
+    speed: 1.05,
+    schedule: 'office',
+  },
+  firefighter: {
+    buildings: ['fire'],
+    activities: ['walk','jog'],
+    speed: 1.1,
+    schedule: 'office',
+  },
+  teacher: {
+    buildings: ['school'],
+    activities: ['briefcase','walk','phone'],
+    speed: 0.9,
+    schedule: 'school',
+  },
+  elderly: {
+    buildings: null,
+    activities: ['elderly','dog_walker'],
+    speed: 0.5,
+    schedule: 'leisure',      // always wandering during day
+  },
+  jogger: {
+    buildings: null,
+    activities: ['jog','jog_headphones'],
+    speed: 1.9,
+    schedule: 'leisure',
+  },
+  tourist: {
+    buildings: null,
+    activities: ['tourist','photographer','ice_cream'],
+    speed: 0.7,
+    schedule: 'leisure',
+  },
+};
+
+// Schedule time windows using DN.dayT (0=06:00, 1=20:00) and DN.nightT (0=20:00, 1=06:00)
+// Returns the desired citizen state string for this moment
+function getCitizenDesiredState(role, schedule){
+  const dayT = DN.dayT;
+  const nightT = DN.nightT;
+  const isNight = DN.isNight;
+
+  if(schedule === 'leisure'){
+    return (isNight && nightT > 0.15) ? 'at_home' : 'leisure';
+  }
+
+  if(isNight){
+    if(nightT > 0.15) return 'at_home';   // after ~22:30 -- sleep
+    return 'leisure';                       // early evening
+  }
+
+  // Daytime schedule
+  if(schedule === 'office'){
+    if(dayT < 0.12)         return 'commuting_out';   // 06:00-07:40
+    if(dayT < 0.70)         return 'at_work';          // 07:40-15:50
+    if(dayT < 0.57 && dayT >= 0.43) return 'leisure'; // 12:00-13:00 lunch break
+    if(dayT < 0.83)         return 'commuting_back';   // 15:50-17:37
+    return 'leisure';                                   // evening
+  }
+  if(schedule === 'school'){
+    if(dayT < 0.09)         return 'commuting_out';   // 06:00-07:15
+    if(dayT < 0.57)         return 'at_work';          // 07:15-14:00 (school hours)
+    if(dayT < 0.70)         return 'commuting_back';   // 14:00-15:50
+    return 'leisure';
+  }
+  if(schedule === 'retail'){
+    if(dayT < 0.18)         return 'commuting_out';   // 06:00-08:30
+    if(dayT < 0.92)         return 'at_work';          // 08:30-18:55
+    return 'commuting_back';
+  }
+  return 'at_home';
+}
+
+const CitizenSim = (() => {
+  // Tracked citizens with full life data -- separate from state.citizens (economy model)
+  let liveCitizens = [];
+  let _genTimer = 0;
+  const MAX_ACTIVE_PEDS = 18;  // max citizen-driven pedestrians visible at once
+
+  // Indonesian family names pool (some unique to distinguish from generic citizens)
+  const FAMILY_NAMES = LAST_NAMES;
+
+  // Assign a role to a citizen based on what workplaces exist
+  function assignRole(){
+    const allRoleKeys = Object.keys(CITIZEN_ROLES);
+    const workRoles = allRoleKeys.filter(k => CITIZEN_ROLES[k].buildings !== null);
+    const leisureRoles = allRoleKeys.filter(k => CITIZEN_ROLES[k].buildings === null);
+
+    // 70% chance of a work role (if matching buildings exist), else leisure
+    if(Math.random() < 0.70){
+      // Shuffle work roles and find one with an available building
+      const shuffled = [...workRoles].sort(() => Math.random() - 0.5);
+      for(const rk of shuffled){
+        const r = CITIZEN_ROLES[rk];
+        const blds = state.buildings.filter(b => r.buildings.includes(b.type));
+        if(blds.length > 0){
+          return { roleKey: rk, workplace: choice(blds) };
+        }
+      }
+    }
+    return { roleKey: choice(leisureRoles), workplace: null };
+  }
+
+  // Generate/refresh live citizen pool from residential buildings
+  function generate(){
+    // Clear peds for citizens whose homes were removed
+    for(const lc of liveCitizens){
+      if(lc.pedRef && lc.pedRef.life > 0){
+        lc.pedRef.life = 0;
+        lc.pedRef = null;
+      }
+    }
+    liveCitizens = [];
+
+    const homes = state.buildings.filter(b => ['res_low','res_med','res_high'].includes(b.type));
+    if(homes.length === 0) return;
+
+    let familyId = 0;
+    for(const home of homes){
+      const cap = home.type === 'res_high' ? 4 : home.type === 'res_med' ? 3 : 2;
+      const adults = randInt(1, Math.min(2, cap));
+      const childCount = cap > adults ? randInt(0, Math.min(2, cap - adults)) : 0;
+      familyId++;
+
+      for(let a = 0; a < adults; a++){
+        const { roleKey, workplace } = assignRole();
+        const role = CITIZEN_ROLES[roleKey];
+        liveCitizens.push({
+          name: `${choice(FIRST_NAMES)} ${choice(FAMILY_NAMES)}`,
+          age: randInt(22, 55),
+          roleKey, role,
+          familyId,
+          home,
+          workplace,
+          state: 'at_home',
+          pedRef: null,         // active pedestrian entry ref
+          nextSpawnTimer: rand(0, 8), // stagger initial spawns
+        });
+      }
+
+      for(let c = 0; c < childCount; c++){
+        // Child role -- prefer school if available, else student-leisure
+        const schools = state.buildings.filter(b => b.type === 'school');
+        liveCitizens.push({
+          name: `${choice(FIRST_NAMES)} ${choice(FAMILY_NAMES)}`,
+          age: randInt(6, 16),
+          roleKey: 'student',
+          role: CITIZEN_ROLES.student,
+          familyId,
+          home,
+          workplace: schools.length > 0 ? choice(schools) : null,
+          state: 'at_home',
+          pedRef: null,
+          nextSpawnTimer: rand(0, 8),
+        });
+      }
+    }
+  }
+
+  // Spawn a pedestrian for a live citizen
+  function spawnCitizenPed(lc){
+    const activeCitizenPeds = liveCitizens.filter(c => c.pedRef && c.pedRef.life > 0).length;
+    if(activeCitizenPeds >= MAX_ACTIVE_PEDS) return null;
+
+    // Anchor: if commuting back, start near workplace; else near home
+    const anchor = (lc.state === 'commuting_back' && lc.workplace) ? lc.workplace : lc.home;
+    if(!anchor) return null;
+
+    const wp = gridToWorld(anchor.x, anchor.z);
+    const px = wp.x + rand(-TILE * 0.6, TILE * 0.6);
+    const pz = wp.z + rand(-TILE * 0.6, TILE * 0.6);
+
+    const mesh = makePedestrian(lc.role.activities);
+    mesh.position.set(px, 0, pz);
+    mesh.rotation.y = rand(0, Math.PI * 2);
+    scene.add(mesh);
+
+    const baseSpeed = rand(0.5, 0.85) * (mesh.userData.speedMul || 1);
+
+    // Set destination target
+    let targetX = null, targetZ = null;
+    if(lc.state === 'commuting_out' && lc.workplace){
+      const tw = gridToWorld(lc.workplace.x, lc.workplace.z);
+      targetX = tw.x + rand(-0.4, 0.4);
+      targetZ = tw.z + rand(-0.4, 0.4);
+    } else if(lc.state === 'commuting_back'){
+      const hw = gridToWorld(lc.home.x, lc.home.z);
+      targetX = hw.x + rand(-0.4, 0.4);
+      targetZ = hw.z + rand(-0.4, 0.4);
+    }
+
+    const pedEntry = {
+      mesh,
+      speed: baseSpeed,
+      life: (lc.state === 'leisure') ? rand(20, 40) : rand(30, 60),
+      dir: rand(0, Math.PI * 2),
+      changeDirTimer: rand(2, 5),
+      bobTimer: rand(0, Math.PI * 2),
+      activity: mesh.userData.activity,
+      // Citizen link fields
+      citizen: lc,
+      targetX,
+      targetZ,
+    };
+
+    state.pedestrians.push(pedEntry);
+    return pedEntry;
+  }
+
+  // Per-tick steering: bias commuter direction toward target
+  function steerToward(pe){
+    if(!pe.targetX) return;
+    const dx = pe.targetX - pe.mesh.position.x;
+    const dz = pe.targetZ - pe.mesh.position.z;
+    const dist = Math.hypot(dx, dz);
+    if(dist < 0.6){
+      pe.life = 0;  // arrived
+      return;
+    }
+    const targetAngle = Math.atan2(dz, dx);
+    let diff = targetAngle - pe.dir;
+    while(diff >  Math.PI) diff -= Math.PI * 2;
+    while(diff < -Math.PI) diff += Math.PI * 2;
+    // 65% steer toward target, 35% free wander
+    pe.dir += diff * 0.08 + rand(-0.05, 0.05);
+    pe.changeDirTimer = rand(2, 5);  // override random wander timer
+  }
+
+  // Main update
+  function update(dt, crowdF){
+    if(liveCitizens.length === 0) return;
+
+    _genTimer -= dt;
+
+    for(const lc of liveCitizens){
+      const desired = getCitizenDesiredState(lc.roleKey, lc.role.schedule);
+
+      // State transition
+      if(desired !== lc.state){
+        lc.state = desired;
+        // Expire current ped when state changes to at_home or at_work (go indoors)
+        if((desired === 'at_home' || desired === 'at_work') && lc.pedRef){
+          lc.pedRef.life = 0;
+          lc.pedRef = null;
+        }
+        lc.nextSpawnTimer = rand(1, 6); // short delay before appearing
+      }
+
+      // Invisible states: do nothing
+      if(lc.state === 'at_home' || lc.state === 'at_work') continue;
+
+      // Check if ped still alive
+      if(lc.pedRef && lc.pedRef.life <= 0) lc.pedRef = null;
+
+      // Spawn if needed (with stagger timer and crowd factor gate)
+      if(!lc.pedRef){
+        lc.nextSpawnTimer -= dt;
+        if(lc.nextSpawnTimer <= 0 && Math.random() < crowdF){
+          lc.pedRef = spawnCitizenPed(lc);
+          lc.nextSpawnTimer = rand(8, 20); // respawn delay if ped expires naturally
+        }
+      } else {
+        // Steer commuters toward destination
+        if(lc.state === 'commuting_out' || lc.state === 'commuting_back'){
+          steerToward(lc.pedRef);
+        }
+      }
+    }
+  }
+
+  // Call when a building is placed or demolished to refresh matching citizens
+  function onBuildingChanged(){
+    // Incremental update: remove citizens whose home/workplace was removed
+    const buildingSet = new Set(state.buildings);
+    liveCitizens = liveCitizens.filter(lc => {
+      const homeOk = lc.home && buildingSet.has(lc.home);
+      if(!homeOk && lc.pedRef){ lc.pedRef.life = 0; lc.pedRef = null; }
+      return homeOk;
+    });
+    // Invalidate workplaces that no longer exist
+    for(const lc of liveCitizens){
+      if(lc.workplace && !buildingSet.has(lc.workplace)){
+        lc.workplace = null;
+        lc.state = 'at_home';
+        if(lc.pedRef){ lc.pedRef.life = 0; lc.pedRef = null; }
+      }
+    }
+    // Add new citizens for newly built residences
+    const homes = state.buildings.filter(b => ['res_low','res_med','res_high'].includes(b.type));
+    const knownHomes = new Set(liveCitizens.map(lc => lc.home));
+    for(const home of homes){
+      if(!knownHomes.has(home)){
+        const cap = home.type === 'res_high' ? 4 : home.type === 'res_med' ? 3 : 2;
+        const adults = randInt(1, Math.min(2, cap));
+        for(let a = 0; a < adults; a++){
+          const { roleKey, workplace } = assignRole();
+          liveCitizens.push({
+            name: `${choice(FIRST_NAMES)} ${choice(FAMILY_NAMES)}`,
+            age: randInt(22, 55),
+            roleKey, role: CITIZEN_ROLES[roleKey],
+            familyId: Math.floor(Math.random() * 9999),
+            home, workplace,
+            state: 'at_home',
+            pedRef: null,
+            nextSpawnTimer: rand(2, 10),
+          });
+        }
+      }
+    }
+  }
+
+  function getLiveCitizens(){ return liveCitizens; }
+
+  return { generate, update, onBuildingChanged, getLiveCitizens };
+})();
+
 // -------------------- VEHICLES --------------------
 
 // ===================== TRAIN SYSTEM =====================
-const TRAIN_COLORS = [0xffffff, 0x0055cc, 0xcc2200, 0x33aa44];
+let TRAIN_GLB_TEMPLATE = null;
+let _trainGlbPending = true;
+
+// Load kereta-api.glb
+gltfLoader.load('./model/car/kereta-api.glb', (gltf) => {
+  const root = gltf.scene;
+  // Normalize: longest XZ dimension -> ~3.5 world units (one train body spanning ~1.75 tiles)
+  for (let pass = 0; pass < 2; pass++){
+    const box = new THREE.Box3().setFromObject(root);
+    const sz  = box.getSize(new THREE.Vector3());
+    const maxXZ = Math.max(sz.x, sz.z);
+    if (maxXZ < 0.001) break;
+    root.scale.multiplyScalar(12.0 / maxXZ);
+  }
+  // Sit on y=0, center XZ
+  const box2 = new THREE.Box3().setFromObject(root);
+  const center = box2.getCenter(new THREE.Vector3());
+  root.position.x -= center.x;
+  root.position.z -= center.z;
+  root.position.y -= box2.min.y;
+  root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+
+  // Corrector so the long axis aligns with +X (movement direction)
+  const corrector = new THREE.Group();
+  corrector.rotation.y = Math.PI / 2;
+  corrector.add(root);
+  const wrapper = new THREE.Group();
+  wrapper.add(corrector);
+  TRAIN_GLB_TEMPLATE = wrapper;
+  _trainGlbPending = false;
+  console.log('[train] kereta-api.glb loaded');
+}, undefined, (err) => {
+  console.warn('[train] kereta-api.glb failed, using procedural fallback', err);
+  _trainGlbPending = false;
+});
 
 function makeTrain(){
+  if (TRAIN_GLB_TEMPLATE){
+    const clone = TRAIN_GLB_TEMPLATE.clone(true);
+    clone.userData.isTrain = true;
+    return clone;
+  }
+  // Procedural fallback (if GLB not yet loaded)
   const g = new THREE.Group();
-  const bodyCol = choice(TRAIN_COLORS);
-  const accentCol = 0x111122;
-  const nCars = randInt(3, 5);
-  const carLen = 1.1;
-  const carGap = 0.05;
+  const bodyCol = choice([0xffffff, 0x0055cc, 0xcc2200, 0x33aa44]);
+  const carLen = 1.1, carGap = 0.05;
+  const nCars = 3;
   const totalLen = nCars * carLen + (nCars - 1) * carGap;
   let xOff = -totalLen / 2 + carLen / 2;
-
   for (let ci = 0; ci < nCars; ci++){
     const car = new THREE.Group();
-    // Body
-    addBox(car, carLen, 0.28, 0.38, 0, 0.22, 0, mat(bodyCol));
-    // Nose/tail slope for first and last car
-    if (ci === 0){
-      addBox(car, 0.18, 0.18, 0.36, carLen*0.5 - 0.06, 0.16, 0, mat(bodyCol));
-      addBox(car, 0.04, 0.04, 0.36, carLen*0.5 + 0.08, 0.08, 0, mat(0xffcc00));
-    }
-    if (ci === nCars - 1){
-      addBox(car, 0.18, 0.18, 0.36, -carLen*0.5 + 0.06, 0.16, 0, mat(bodyCol));
-    }
-    // Stripe
-    addBox(car, carLen, 0.04, 0.40, 0, 0.28, 0, mat(0x0033aa));
-    // Windows row
-    const nWin = 3;
-    for (let wi = 0; wi < nWin; wi++){
-      const wx = -carLen*0.25 + wi * (carLen*0.25);
-      addBox(car, 0.16, 0.1, 0.02, wx, 0.25, 0.20, mat(0x88ccff));
-      addBox(car, 0.16, 0.1, 0.02, wx, 0.25, -0.20, mat(0x88ccff));
-    }
-    // Undercarriage
-    addBox(car, carLen*0.9, 0.07, 0.42, 0, 0.07, 0, mat(accentCol));
-    // Wheels (4 per car)
-    for (const wx of [-carLen*0.35, carLen*0.35]){
-      for (const wz of [-0.22, 0.22]){
-        addCyl(car, 0.07, 0.07, 0.06, 8, mat(0x333344), wx, 0.06, wz, 0, 0, Math.PI/2);
+    addBox(car, carLen, 0.22, 0.28, 0, 0.16, 0, mat(bodyCol));
+    addBox(car, carLen, 0.03, 0.30, 0, 0.22, 0, mat(0x0033aa));
+    for (const wx of [-carLen*0.3, carLen*0.3]){
+      for (const wz of [-0.16, 0.16]){
+        addCyl(car, 0.05, 0.05, 0.05, 8, mat(0x333344), wx, 0.05, wz, 0, 0, Math.PI/2);
       }
     }
     car.position.x = xOff;
     g.add(car);
     xOff += carLen + carGap;
   }
-  g.scale.setScalar(0.72);
+  g.scale.setScalar(0.55);
   g.userData.isTrain = true;
   return g;
 }
@@ -2404,7 +3548,7 @@ function spawnTrain(){
   const [dx, dz] = choice(valid);
   const wp = gridToWorld(start.x, start.z);
   const mesh = makeTrain();
-  mesh.position.set(wp.x, 0.06, wp.z);
+  mesh.position.set(wp.x, 0, wp.z);  // GLB already sits on y=0
   mesh.rotation.y = dirToYaw(dx, dz);
   scene.add(mesh);
   const nextWP = gridToWorld(start.x + dx, start.z + dz);
@@ -2570,7 +3714,7 @@ const SHIRT_COLORS = [
 const PANT_COLORS = [0x2c3e50,0x34495e,0x1a252f,0x6c757d,0x4a5859,0x5e3023,0x3d3635,0x1b3b1f];
 const SHOE_COLORS = [0x1a1a1a,0x2c1810,0x5a3825,0x4a4a4a,0xffffff,0x8b0000];
 
-// Activity types — wider variety
+// Activity types -- wider variety
 const ACTIVITIES = [
   'walk','walk','walk','walk','walk',
   'jog',
@@ -2978,7 +4122,7 @@ function makePedestrian(activityPool){
   const isElderly = activity === 'elderly';
   const isJog     = activity === 'jog' || activity === 'jog_headphones';
 
-  // Body size variation — base proportions are realistic 7.5-head adult.
+  // Body size variation -- base proportions are realistic 7.5-head adult.
   // Final scale (applied at end) brings them down to ~0.55m world units.
   const heightMul = isChild ? rand(0.62, 0.72) : (isElderly ? rand(0.92, 0.98) : rand(0.96, 1.05));
   const widthMul  = isChild ? 0.80 : rand(0.90, 1.10);
@@ -2999,7 +4143,7 @@ function makePedestrian(activityPool){
     hairColor = choice(palette);
   }
 
-  // Clothing — businessmen wear muted suit tones; joggers wear bright athletic
+  // Clothing -- businessmen wear muted suit tones; joggers wear bright athletic
   let shirtPalette = SHIRT_COLORS;
   let pantPalette  = PANT_COLORS;
   if (activity === 'businessman') {
@@ -3099,7 +4243,7 @@ function makePedestrian(activityPool){
   headG.add(mouth);
   g.add(headG);
 
-  // Hair / hijab / cap — built around local headY=0 since headG is at headY
+  // Hair / hijab / cap -- built around local headY=0 since headG is at headY
   // We'll just append into headG at local coordinates (offset 0)
   buildHair(headG, pickHairStyle.call(null) || 'short', hairColor, 0, skinMat);
   // Actually need to pick once and use again for facial-hair gate
@@ -3195,7 +4339,7 @@ function makePedestrian(activityPool){
     const bike = buildBike();
     bike.position.set(0, 0, 0);
     outer.add(bike);
-    // ped sits on bike — raise feet so they "stand" on pedals
+    // ped sits on bike -- raise feet so they "stand" on pedals
     g.position.y = 0.08;
     // bend legs slightly
     leftLeg.rotation.x =  0.3;
@@ -3247,7 +4391,7 @@ function makePedestrian(activityPool){
 
   g.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
 
-  // FINAL SCALE — bring whole outer down so adult ~0.55m world units (was ~1.0).
+  // FINAL SCALE -- bring whole outer down so adult ~0.55m world units (was ~1.0).
   outer.scale.setScalar(0.55);
   return outer;
 }
@@ -3373,7 +4517,7 @@ function updatePedestrians(dt){
   }
 }
 
-// Direction helpers — car body front is along local +X axis
+// Direction helpers -- car body front is along local +X axis
 function dirToYaw(dx, dz){ return Math.atan2(-dz, dx); }
 const LANE_OFFSET = 0.3;
 function laneOffset(dx, dz){ return { ox: dz * LANE_OFFSET, oz: -dx * LANE_OFFSET }; }
@@ -3394,6 +4538,11 @@ function spawnVehicle(){
   const mesh = makeCar();
   mesh.position.set(wp.x + off.ox, 0, wp.z + off.oz);
   mesh.rotation.y = dirToYaw(dx, dz);
+  // Headlight -- active at night or in rain
+  const hl = new THREE.PointLight(0xffffaa, 0, 10, 1.5);
+  hl.name = 'headlight';
+  hl.position.set(0.4, 0.35, 0);
+  mesh.add(hl);
   scene.add(mesh);
   const nextWP = gridToWorld(start.x + dx, start.z + dz);
   const targetOff = laneOffset(dx, dz);
@@ -3428,12 +4577,13 @@ function updateVehicles(dt){
     const dxw = v.tx - v.mesh.position.x;
     const dzw = v.tz - v.mesh.position.z;
     const dist = Math.hypot(dxw, dzw);
-    const step = v.speed * dt;
+    const rainPenalty = DN.weather === 'rain' ? 0.65 : 1.0;
+    const step = v.speed * dt * rainPenalty;
     if (dist <= step + 0.01){
       v.mesh.position.x = v.tx;
       v.mesh.position.z = v.tz;
       v.gx = v.ngx; v.gz = v.ngz;
-      const next = v.isTrain ? pickNextDirectionTrain(v) : pickNextDirection(v);
+      const next = v.isTrain ? pickNextDirectionTrain(v) : (v.isTaxi ? pickNextDirectionTaxi(v) : pickNextDirection(v));
       if (!next){ v.life = 0; }
       else {
         v.dx = next[0]; v.dz = next[1];
@@ -3463,6 +4613,367 @@ function updateVehicles(dt){
     }
   }
 }
+// ==================== DAY/NIGHT/WEATHER UPDATE ====================
+function updateDayNight(dt){
+  DN.elapsed = (DN.elapsed + dt) % DN.CYCLE;
+  const t = DN.elapsed / DN.CYCLE;
+
+  // Throttle sfx ambience check (~every 5s real time)
+  if (!updateDayNight._sfxTimer) updateDayNight._sfxTimer = 0;
+  updateDayNight._sfxTimer -= dt;
+  if (updateDayNight._sfxTimer <= 0){
+    updateDayNight._sfxTimer = 5;
+    Audio.tickSfxAmbience();
+  }
+
+  // Find keyframe bracket
+  let kA = _DN_KEYS[0], kB = _DN_KEYS[1];
+  for(let i=0; i<_DN_KEYS.length-1; i++){
+    if(t >= _DN_KEYS[i][0] && t <= _DN_KEYS[i+1][0]){ kA=_DN_KEYS[i]; kB=_DN_KEYS[i+1]; break; }
+  }
+  const span = kB[0] - kA[0];
+  const f = span < 0.00001 ? 0 : Math.min(1, (t - kA[0]) / span);
+
+  // Base interpolated values
+  const skyC  = new THREE.Color(kA[1]).lerp(new THREE.Color(kB[1]), f);
+  const fogC  = new THREE.Color(kA[2]).lerp(new THREE.Color(kB[2]), f);
+  const fogN  = kA[3] + (kB[3]-kA[3])*f;
+  const fogF  = kA[4] + (kB[4]-kA[4])*f;
+  const ambC  = new THREE.Color(kA[5]).lerp(new THREE.Color(kB[5]), f);
+  const ambI  = kA[6] + (kB[6]-kA[6])*f;
+  let   sunI  = kA[7] + (kB[7]-kA[7])*f;
+  const moonI = kA[8] + (kB[8]-kA[8])*f;
+
+  // Sun arc: east->west during day
+  if(sunI > 0){
+    const angle = (DN.dayT - 0.5) * Math.PI;
+    sun.position.set(
+      Math.cos(angle) * 80,
+      Math.max(5, Math.sin(angle + Math.PI*0.5) * 90),
+      -20
+    );
+  }
+
+  // Apply weather modifiers
+  if(DN.weather === 'rain'){
+    skyC.lerp(new THREE.Color(DN.isNight ? 0x08070a : 0x4a4a5a), 0.55);
+    fogC.lerp(new THREE.Color(DN.isNight ? 0x060608 : 0x3d3d4a), 0.60);
+    scene.fog.near = fogN * 0.6;
+    scene.fog.far  = Math.min(fogF, DN.isNight ? 80 : 110);
+    ambient.intensity = ambI * 0.60;
+    ambient.color.copy(ambC).lerp(new THREE.Color(0x6677aa), 0.4);
+    sun.intensity  = sunI * 0.2;
+  } else {
+    scene.fog.near = fogN;
+    scene.fog.far  = fogF;
+    ambient.intensity = ambI;
+    ambient.color.copy(ambC);
+    sun.intensity  = sunI;
+  }
+  scene.background.copy(skyC);
+  scene.fog.color.copy(fogC);
+  moon.intensity  = moonI;
+  hemi.intensity  = DN.isNight ? 0.10 : 0.55;
+  hemi.color.set(DN.isNight ? 0x1a2266 : 0xd4eeff);
+  hemi.groundColor.set(DN.isNight ? 0x060608 : 0x88cc66);
+
+  // Vehicle headlights -- on at night or in rain
+  const wantHL = DN.isNight || DN.weather === 'rain';
+  for(const v of state.vehicles){
+    const hl = v.mesh.getObjectByName('headlight');
+    if(hl) hl.intensity = wantHL ? 1.8 : 0;
+  }
+
+  // Building night lights -- smooth ramp based on ambient darkness
+  const lightFactor = DN.isNight
+    ? 0.3 + 0.4 * Math.sin(DN.nightT * Math.PI)   // max ~0.7 at midnight
+    : Math.max(0, 1 - ambI / 1.0) * 0.5;           // subtle at sunset/sunrise
+  const rainBoost = DN.weather === 'rain' ? 0.1 : 0;
+  const finalLF = Math.min(1, lightFactor + rainBoost);
+
+  for(const b of state.buildings){
+    // Emissive: warm subtle window glow, not full blast
+    if(b.emMats && b.emMats.length > 0){
+      const ec = b.emColor || 0xffeecc;
+      for(const m of b.emMats){
+        m.emissive.setHex(ec);
+        m.emissiveIntensity = finalLF * 0.30;  // subtle -- just a warm tint on walls
+      }
+    }
+    // PointLight halo: soft ambient spill, not blinding
+    if(b.nightLights){
+      for(const {light, maxInt} of b.nightLights){
+        light.intensity = maxInt * finalLF * 0.4;
+      }
+    }
+  }
+
+  // Cloud tint at night / rain
+  cloudGroup.traverse(o=>{
+    if(o.isMesh){
+      if(DN.isNight) o.material.color.setHex(0x4455aa);
+      else if(DN.weather==='rain') o.material.color.setHex(0x778899);
+      else o.material.color.setHex(0xffffff);
+    }
+  });
+
+  // Weather tick
+  if(DN.weather === 'rain'){
+    DN.rainRemaining -= dt;
+    if(DN.rainMesh) DN.rainMesh.visible = true;
+    if(DN.rainRemaining <= 0){
+      DN.weather = 'clear';
+      if(DN.rainMesh) DN.rainMesh.visible = false;
+      if(state.running) notify('Rain stopped', 'The storm has cleared.', 'success');
+    }
+  } else {
+    if(DN.rainMesh) DN.rainMesh.visible = false;
+    DN.nextWeather -= dt;
+    if(DN.nextWeather <= 0){
+      DN.nextWeather = rand(120, 600);
+      if(Math.random() < 0.35){
+        const dur = rand(300, 900);
+        DN.weather = 'rain';
+        DN.rainRemaining = dur;
+        if(state.running) notify('Rain incoming!', 'A storm is rolling through the city.', 'warn');
+      }
+    }
+  }
+}
+
+function updateRainParticles(dt){
+  if(!DN.rainMesh || !DN.rainMesh.visible) return;
+  const pos  = DN.rainVerts;
+  const N    = pos.length / 6;
+  const FALL = 28 * dt, WX = 4 * dt, WZ = -1 * dt;
+  const SPREAD = 90, HEIGHT = 55;
+  const cx = camTarget.x, cz = camTarget.z;
+  for(let i=0; i<N; i++){
+    const b = i*6;
+    pos[b+1] -= FALL; pos[b+4] -= FALL;
+    pos[b]   += WX;   pos[b+3] += WX;
+    pos[b+2] += WZ;   pos[b+5] += WZ;
+    if(pos[b+4] < -1){
+      const x = cx + rand(-SPREAD, SPREAD), z = cz + rand(-SPREAD, SPREAD);
+      const y = rand(HEIGHT*0.5, HEIGHT), len = rand(0.2, 0.65);
+      pos[b]=x;    pos[b+1]=y;     pos[b+2]=z;
+      pos[b+3]=x+WX*4; pos[b+4]=y-len; pos[b+5]=z+WZ*4;
+    }
+  }
+  DN.rainGeo.attributes.position.needsUpdate = true;
+}
+
+// ==================== TAXI SYSTEM ====================
+function spawnTaxiPassenger(){
+  // Pick a road tile that has a non-road neighbor (so passenger stands on sidewalk)
+  const roads = state.buildings.filter(b => b.type === 'road');
+  if (roads.length < 2) return;
+  // Only spawn if few waiting already
+  if (state.taxiPassengers.filter(p => !p.claimed).length >= 4) return;
+
+  const road = choice(roads);
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+  const side = choice(dirs);
+  const nx = road.x + side[0], nz = road.z + side[1];
+  // Passenger stands just off the road edge
+  const rw = gridToWorld(road.x, road.z);
+  const wx = rw.x + side[0] * (TILE * 0.72) + rand(-0.15, 0.15);
+  const wz = rw.z + side[1] * (TILE * 0.72) + rand(-0.15, 0.15);
+
+  // Pedestrian mesh -- standing still, arm raised (hailing)
+  const mesh = makePedestrian(['walk']);
+  mesh.position.set(wx, 0, wz);
+  // Face toward road
+  mesh.rotation.y = Math.atan2(-side[1], side[0]);
+  // Lock arm in raised position immediately
+  const ud = mesh.userData;
+  if (ud.leftArm){ ud.leftArm.rotation.x = -2.0; ud.leftArm.rotation.z = 0.3; }
+  ud.armSwingLockedL = true;  // prevent updatePedestrians from resetting it
+  scene.add(mesh);
+
+  // Hailing indicator: small yellow exclamation diamond above head
+  const indGeo = new THREE.OctahedronGeometry(0.09, 0);
+  const indMat = new THREE.MeshBasicMaterial({ color: 0xffdd00 });
+  const indicator = new THREE.Mesh(indGeo, indMat);
+  indicator.position.set(wx, 1.1, wz);
+  indicator._phase = Math.random() * Math.PI * 2;
+  scene.add(indicator);
+
+  state.taxiPassengers.push({
+    mesh, indicator,
+    wx, wz,
+    gx: road.x, gz: road.z,  // target road tile for taxi to reach
+    claimed: false,
+    life: rand(30, 60),       // despawn if unclaimed after this long
+  });
+}
+
+function spawnTaxi(){
+  const roads = state.buildings.filter(b => b.type === 'road');
+  if (roads.length < 2) return;
+  const start = choice(roads);
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const valid = dirs.filter(([dx,dz]) => {
+    const nx = start.x + dx, nz = start.z + dz;
+    return inBounds(nx, nz) && state.grid[nx][nz].type === 'road';
+  });
+  if (!valid.length) return;
+  const [dx, dz] = choice(valid);
+  const wp = gridToWorld(start.x, start.z);
+  const off = laneOffset(dx, dz);
+  const mesh = makeTaxi();
+  mesh.position.set(wp.x + off.ox, 0, wp.z + off.oz);
+  mesh.rotation.y = dirToYaw(dx, dz);
+  // Headlight
+  const hl = new THREE.PointLight(0xffffaa, 0, 10, 1.5);
+  hl.name = 'headlight';
+  hl.position.set(0.4, 0.35, 0);
+  mesh.add(hl);
+  // Taxi sign light (yellow on roof)
+  const signLight = new THREE.PointLight(0xffee00, 0.0, 4, 1.8);
+  signLight.name = 'taxiSign';
+  signLight.position.set(0, 0.6, 0);
+  mesh.add(signLight);
+  scene.add(mesh);
+  const nextWP = gridToWorld(start.x + dx, start.z + dz);
+  const targetOff = laneOffset(dx, dz);
+  state.vehicles.push({
+    mesh, gx: start.x, gz: start.z, dx, dz,
+    tx: nextWP.x + targetOff.ox, tz: nextWP.z + targetOff.oz,
+    ngx: start.x + dx, ngz: start.z + dz,
+    speed: rand(2.2, 3.5), life: rand(40, 80),
+    targetYaw: dirToYaw(dx, dz),
+    isTaxi: true,
+    taxiState: 'cruising',   // 'cruising' | 'approaching' | 'pickup' | 'driving'
+    taxiTarget: null,        // the taxiPassenger entry
+    taxiTimer: 0,
+    taxiDropTimer: rand(15, 30),
+  });
+}
+
+function updateTaxis(dt){
+  // Animate taxi sign light (flicker when cruising/approaching)
+  // Animate waiting passenger indicators
+  for (const p of state.taxiPassengers){
+    if (p.indicator){
+      p.indicator._phase = (p.indicator._phase || 0) + dt * 3;
+      p.indicator.position.y = 1.1 + Math.sin(p.indicator._phase) * 0.08;
+      p.indicator.rotation.y += dt * 2;
+    }
+    // Raise arm
+    const ud = p.mesh.userData;
+    if (ud.leftArm) ud.leftArm.rotation.x = -2.0;
+    if (ud.leftArm) ud.leftArm.rotation.z =  0.3;
+  }
+
+  // Update taxi FSM
+  for (const v of state.vehicles){
+    if (!v.isTaxi) continue;
+    const signLight = v.mesh.getObjectByName('taxiSign');
+
+    if (v.taxiState === 'cruising'){
+      // Sign light on
+      if (signLight) signLight.intensity = 0.5 + Math.sin(Date.now() * 0.004) * 0.15;
+      // Scan for unclaimed passengers within range
+      const unclaimed = state.taxiPassengers.filter(p => !p.claimed);
+      if (unclaimed.length > 0){
+        // Find closest unclaimed
+        let best = null, bestDist = 999;
+        for (const p of unclaimed){
+          const d = Math.hypot(v.mesh.position.x - p.wx, v.mesh.position.z - p.wz);
+          if (d < bestDist){ bestDist = d; best = p; }
+        }
+        if (best && bestDist < 20){
+          best.claimed = true;
+          v.taxiTarget = best;
+          v.taxiState = 'approaching';
+        }
+      }
+
+    } else if (v.taxiState === 'approaching'){
+      if (signLight) signLight.intensity = 0.8;
+      const p = v.taxiTarget;
+      if (!p || p.life <= 0){ v.taxiState = 'cruising'; v.taxiTarget = null; return; }
+      // Check if we're on the passenger's target road tile
+      if (v.gx === p.gx && v.gz === p.gz){
+        // Stop and begin pickup
+        v.taxiState = 'pickup';
+        v.taxiTimer = 1.8; // seconds stopped
+        v.speed = 0;
+      }
+      // Override next-tile choice to prefer tiles closer to target
+      // (handled in pickNextDirectionTaxi below)
+
+    } else if (v.taxiState === 'pickup'){
+      v.taxiTimer -= dt;
+      if (signLight) signLight.intensity = 1.2;
+      // Passenger walks toward taxi while waiting
+      const p = v.taxiTarget;
+      if (p && p.mesh){
+        // Lean toward taxi
+        const dx2 = v.mesh.position.x - p.mesh.position.x;
+        const dz2 = v.mesh.position.z - p.mesh.position.z;
+        p.mesh.rotation.y = Math.atan2(dx2, dz2);
+      }
+      if (v.taxiTimer <= 0){
+        // Passenger boards -- remove from scene
+        if (p){
+          scene.remove(p.mesh);
+          if (p.indicator) scene.remove(p.indicator);
+          const idx = state.taxiPassengers.indexOf(p);
+          if (idx !== -1) state.taxiPassengers.splice(idx, 1);
+        }
+        v.taxiTarget = null;
+        v.taxiState = 'driving';
+        v.speed = rand(2.2, 3.8);
+        if (signLight) signLight.intensity = 0; // off = occupied
+        v.taxiDropTimer = rand(15, 30);
+      }
+
+    } else if (v.taxiState === 'driving'){
+      if (signLight) signLight.intensity = 0;
+      v.taxiDropTimer -= dt;
+      if (v.taxiDropTimer <= 0){
+        v.life = 0; // drop off off-screen -- taxi leaves
+      }
+    }
+  }
+
+  // Age + despawn unclaimed passengers
+  for (let i = state.taxiPassengers.length - 1; i >= 0; i--){
+    const p = state.taxiPassengers[i];
+    p.life -= dt;
+    if (p.life <= 0){
+      scene.remove(p.mesh);
+      if (p.indicator) scene.remove(p.indicator);
+      state.taxiPassengers.splice(i, 1);
+    }
+  }
+}
+
+// Taxi-aware direction picker: prefers tiles closer to target passenger's road tile
+function pickNextDirectionTaxi(v){
+  if (v.taxiState === 'approaching' && v.taxiTarget){
+    const tgx = v.taxiTarget.gx, tgz = v.taxiTarget.gz;
+    const forward = [v.dx, v.dz];
+    const right   = [-v.dz, v.dx];
+    const left    = [v.dz, -v.dx];
+    const opts = [];
+    for (const [dx,dz] of [forward, right, left, [-v.dx,-v.dz]]){
+      const nx = v.ngx + dx, nz = v.ngz + dz;
+      if (inBounds(nx,nz) && state.grid[nx][nz].type === 'road'){
+        const dist = Math.abs(nx - tgx) + Math.abs(nz - tgz);
+        opts.push({ dir:[dx,dz], dist });
+      }
+    }
+    if (opts.length === 0) return null;
+    opts.sort((a,b) => a.dist - b.dist);
+    // 80% chance to pick closer tile, 20% random to avoid getting stuck
+    return Math.random() < 0.80 ? opts[0].dir : choice(opts).dir;
+  }
+  return pickNextDirection(v);
+}
+
 // -------------------- ECONOMY / TICK --------------------
 function recalcStats(){
   let homes=0, jobs=0, power=0, powerGen=0, water=0, waterGen=0, pollution=0, happyBonus=0, tax=0;
@@ -3490,6 +5001,7 @@ function recalcStats(){
 function gameTick(dt){
   if (state.paused || state.speed===0) return;
   const mult = state.speed;
+  updateDayNight(dt * mult);
   state.tickSinceLastDay += dt * mult;
 
   // every "day" (3 real seconds at 1x)
@@ -3557,24 +5069,97 @@ function gameTick(dt){
     if (state.day > 30 && Math.random()<0.02){
       triggerDisaster();
     }
+
+    // mission check
+    if (!state.sandbox && !state.freeMode && !state._missionChecked && !state._missionShowing){
+      if (checkMissionComplete()){
+        state._missionChecked = true;
+        advanceMissionLevel();
+      }
+    }
   }
 
+  // ---- Crowd factor: 0.0 (empty) -> 1.0 (full activity) ----
+  // Night factor: 0.0 at midnight, ramps up toward day
+  let nightF = 1.0;
+  if(DN.isNight){
+    // nightT: 0=dusk(20:00), 1=dawn(06:00). Deepest night ~= 0.4 (midnight ~00:00)
+    const mid = Math.sin(DN.nightT * Math.PI); // peaks at midnight
+    nightF = Math.max(0.05, 1.0 - mid * 0.93); // almost nobody at midnight
+  } else {
+    // dayT: 0=dawn(06:00), 1=dusk(20:00). Rush hour peaks at ~0.3 (10am) & ~0.85 (6pm)
+    const rush = 0.4 + 0.4 * Math.max(Math.sin(DN.dayT * Math.PI * 1.5), 0);
+    nightF = 0.35 + rush * 0.65;
+  }
+  const rainF = DN.weather === 'rain' ? 0.18 : 1.0;
+  const crowdF = nightF * rainF;
+
   // vehicle spawn
-  if (Math.random() < 0.04*mult && state.vehicles.length < 30){
+  const maxVehicles = Math.max(1, Math.round(30 * crowdF));
+  if (Math.random() < 0.04 * mult * crowdF && state.vehicles.length < maxVehicles){
     spawnVehicle();
   }
-  // train spawn
-  if (Math.random() < 0.015*mult && state.vehicles.filter(v=>v.isTrain).length < 3){
+  // Cull excess vehicles quickly when conditions change (rain/night)
+  // Don't cull taxis that are picking up or driving with a passenger
+  if (state.vehicles.length > maxVehicles + 2){
+    let culled = 0;
+    for (let ci = state.vehicles.length - 1; ci >= 0 && culled < state.vehicles.length - maxVehicles; ci--){
+      const cv = state.vehicles[ci];
+      if (cv.isTaxi && (cv.taxiState === 'pickup' || cv.taxiState === 'driving')) continue;
+      scene.remove(cv.mesh);
+      cv.mesh.traverse(o=>{ if(o.isMesh && o.geometry) o.geometry.dispose(); });
+      state.vehicles.splice(ci, 1);
+      culled++;
+    }
+  }
+  // train spawn — only if metro station exists, max 1 per rail line
+  const hasMetro = state.buildings.some(b => b.type === 'metro');
+  if (hasMetro && Math.random() < 0.015*mult && state.vehicles.filter(v=>v.isTrain).length < 1){
     spawnTrain();
   }
   updateVehicles(dt * mult);
 
+  // ---- TAXI system ----
+  const maxTaxis = Math.max(0, Math.round(3 * crowdF));
+  const taxiCount = state.vehicles.filter(v => v.isTaxi).length;
+  if (Math.random() < 0.025 * mult * crowdF && taxiCount < maxTaxis){
+    spawnTaxi();
+  }
+  // Taxi passenger hailing spawn
+  const roads = state.buildings.filter(b => b.type === 'road');
+  if (roads.length >= 2 && Math.random() < 0.015 * mult * crowdF){
+    spawnTaxiPassenger();
+  }
+  updateTaxis(dt * mult);
+
   // pedestrian spawn (near buildings)
-  const maxPeds = Math.min(40, 5 + state.buildings.length);
-  if (Math.random() < 0.06*mult && state.pedestrians.length < maxPeds){
+  const maxPeds = Math.max(0, Math.round(Math.min(40, 5 + state.buildings.length) * crowdF));
+  if (Math.random() < 0.06 * mult * crowdF && state.pedestrians.length < maxPeds){
     spawnPedestrian();
   }
+  // Drain pedestrians over their natural life when crowd drops
+  // (shortens life of existing peds so they walk indoors faster)
+  if(crowdF < 0.5){
+    for(const p of state.pedestrians){
+      p.life -= dt * mult * (1 - crowdF) * 1.5; // drain up to 1.5x faster
+    }
+  }
+  // Hard cull if way over cap -- spare citizen peds so their refs stay valid
+  if(state.pedestrians.length > maxPeds + 3){
+    let culled = 0;
+    const need = state.pedestrians.length - maxPeds;
+    for(let ci = state.pedestrians.length - 1; ci >= 0 && culled < need; ci--){
+      const cp = state.pedestrians[ci];
+      if(cp.citizen) continue; // don't cull citizen peds
+      scene.remove(cp.mesh);
+      cp.mesh.traverse(o=>{ if(o.isMesh && o.geometry && !Object.values(_PED_GEO).includes(o.geometry)) o.geometry.dispose(); });
+      state.pedestrians.splice(ci, 1);
+      culled++;
+    }
+  }
   updatePedestrians(dt * mult);
+  // Citizen life simulation -- drives smart NPC schedules
+  CitizenSim.update(dt * mult, crowdF);
 
   // traffic estimate
   state.traffic = Math.min(100, state.vehicles.length*4 + state.population*0.001);
@@ -3729,7 +5314,7 @@ canvas.addEventListener('mousemove', e=>{
     cursorMesh.visible = true;
     const def = BUILDINGS[state.selected];
     const rotDeg = state.placeRotation * 90;
-    showCursorTip(e.clientX, e.clientY, `${def.icon} ${def.name} (${size}×${size}) — R: rotate (${rotDeg}°) — click to confirm, right-click to cancel`);
+    showCursorTip(e.clientX, e.clientY, `${def.icon} ${def.name} (${size}x${size}) -- R: rotate (${rotDeg} deg) -- click to confirm, right-click to cancel`);
   } else if (g){
     const size = state.selected ? getSize(state.selected) : 1;
     const wp = footprintCenterWorld(g.x, g.z, size);
@@ -3744,8 +5329,8 @@ canvas.addEventListener('mousemove', e=>{
       cursorMesh.material.color.setHex(can ? 0xffdd00 : 0xef4444);
       const isInstant = state.selected==='road' || state.selected==='bulldoze' || state.selected==='railway' || state.selected==='water_tile';
       const tip = isInstant
-        ? `${def.icon} ${def.name} — $${def.cost}`
-        : `${def.icon} ${def.name} (${size}×${size}) — $${def.cost}  |  click to preview`;
+        ? `${def.icon} ${def.name} -- $${def.cost}`
+        : `${def.icon} ${def.name} (${size}x${size}) -- $${def.cost}  |  click to preview`;
       showCursorTip(e.clientX, e.clientY, tip);
     } else hideCursorTip();
     if (isDragging && state.selected){
@@ -3811,7 +5396,7 @@ window.addEventListener('keydown', e=>{
   if (e.key === '3') setSpeed(3);
   if (e.key === '0' || e.key === ' ') { e.preventDefault(); setSpeed(state.speed===0?1:0); }
   if (e.key.toLowerCase()==='b') { state.selected='bulldoze'; state.placeRotation=0; state.pending=null; clearGhost(); renderConstructionMenu(); }
-  // R = rotate placement 90° clockwise (works in pending mode too)
+  // R = rotate placement 90 deg clockwise (works in pending mode too)
   if (e.key.toLowerCase()==='r' && state.selected){
     e.preventDefault();
     state.placeRotation = (state.placeRotation + 1) % 4;
@@ -3832,31 +5417,1023 @@ function setSpeed(s){
 const uiRoot = document.getElementById('ui-root');
 
 function renderMainMenu(){
-  // Start menu music
-  Audio.init(); // Initialize audio on menu load
-  
+  Audio.init();
+
   uiRoot.innerHTML = `
   <div id="main-menu">
-    <h1>CITY EMPIRE</h1>
-    <div class="subtitle">Modern Metropolis</div>
-    <div class="menu-buttons">
-      <button id="btn-new"><span class="icon">🏗️</span>New Game</button>
-      <button id="btn-continue" class="${localStorage.getItem('city-empire-save')?'':'disabled'}"><span class="icon">▶️</span>Continue</button>
-      <button id="btn-sandbox"><span class="icon">🧪</span>Sandbox Mode</button>
-      <button id="btn-scenario" class="disabled"><span class="icon">🎯</span>Scenario Mode</button>
-      <button id="btn-multi" class="disabled"><span class="icon">🌐</span>Multiplayer</button>
-      <button id="btn-workshop" class="disabled"><span class="icon">📦</span>Workshop</button>
-      <button id="btn-settings" class="disabled"><span class="icon">⚙️</span>Settings</button>
+    <div id="menu-bg"></div>
+    <div id="menu-bg-overlay"></div>
+    <canvas id="menu-particles"></canvas>
+    <div id="menu-content">
+      <h1 class="menu-logo">CITY EMPIRE</h1>
+      <div class="menu-subtitle">${LT('subtitle')}</div>
+      <div class="menu-buttons">
+        <button id="btn-new" class="highlight">
+          <span class="btn-icon">${pxImg('mn_new',26)}</span>
+          <span class="btn-label">${LT('new_game')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+        <button id="btn-continue" class="${localStorage.getItem('city-empire-save')?'':'disabled'}">
+          <span class="btn-icon">${pxImg('mn_continue',26)}</span>
+          <span class="btn-label">${LT('continue')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+        <button id="btn-sandbox">
+          <span class="btn-icon">${pxImg('mn_sandbox',26)}</span>
+          <span class="btn-label">${LT('sandbox')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+        <button id="btn-scenario" class="disabled">
+          <span class="btn-icon">${pxImg('mn_scenario',26)}</span>
+          <span class="btn-label">${LT('scenario')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+        <button id="btn-multi" class="disabled">
+          <span class="btn-icon">${pxImg('mn_multi',26)}</span>
+          <span class="btn-label">${LT('multi')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+        <button id="btn-settings">
+          <span class="btn-icon">${pxImg('mn_settings',26)}</span>
+          <span class="btn-label">${LT('settings')}</span>
+          <span class="btn-arrow">›</span>
+        </button>
+      </div>
+      <div class="menu-version">${LT('version')}</div>
     </div>
-    <div class="footer">© CITY EMPIRE — built with Three.js</div>
+    <div class="footer">© CITY EMPIRE -- built with Three.js</div>
   </div>`;
-  document.getElementById('btn-new').onclick = ()=>startGame(false);
-  document.getElementById('btn-sandbox').onclick = ()=>startGame(true);
+
+  // ---- Particle system ----
+  const canvas = document.getElementById('menu-particles');
+  const ctx = canvas.getContext('2d');
+  let W, H;
+  const particles = [];
+  const PARTICLE_COUNT = 80;
+
+  function resizeCanvas(){
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  const COLORS = ['rgba(76,201,240,', 'rgba(124,92,255,', 'rgba(247,37,133,', 'rgba(255,255,255,', 'rgba(255,200,80,'];
+  for (let i = 0; i < PARTICLE_COUNT; i++){
+    particles.push({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * 2.2 + 0.4,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: -(Math.random() * 0.5 + 0.1),
+      alpha: Math.random() * 0.6 + 0.2,
+      dAlpha: (Math.random() - 0.5) * 0.005,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      pulse: Math.random() * Math.PI * 2,
+    });
+  }
+
+  let particleRaf = null;
+  function drawParticles(){
+    ctx.clearRect(0, 0, W, H);
+    for (const p of particles){
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha += p.dAlpha;
+      p.pulse += 0.025;
+      if (p.alpha <= 0.05 || p.alpha >= 0.85) p.dAlpha *= -1;
+      if (p.y < -10) { p.y = H + 10; p.x = Math.random() * W; }
+      if (p.x < -10) p.x = W + 10;
+      if (p.x > W + 10) p.x = -10;
+
+      const glowR = p.r * (2.5 + Math.sin(p.pulse) * 0.8);
+      const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR * 4);
+      grd.addColorStop(0, p.color + (p.alpha) + ')');
+      grd.addColorStop(0.4, p.color + (p.alpha * 0.4) + ')');
+      grd.addColorStop(1, p.color + '0)');
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR * 4, 0, Math.PI * 2);
+      ctx.fillStyle = grd;
+      ctx.fill();
+    }
+    particleRaf = requestAnimationFrame(drawParticles);
+  }
+  drawParticles();
+
+  // ---- Ripple on click ----
+  document.querySelectorAll('#main-menu .menu-buttons button').forEach(btn => {
+    btn.addEventListener('pointerdown', (e) => {
+      if (btn.classList.contains('disabled')) return;
+      const rect = btn.getBoundingClientRect();
+      const ripple = document.createElement('span');
+      ripple.className = 'ripple';
+      const size = Math.max(rect.width, rect.height) * 1.4;
+      ripple.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX-rect.left-size/2}px;top:${e.clientY-rect.top-size/2}px`;
+      btn.appendChild(ripple);
+      ripple.addEventListener('animationend', () => ripple.remove());
+    });
+  });
+
+  // Stop particles when menu is replaced
+  const observer = new MutationObserver(() => {
+    if (!document.getElementById('menu-particles')){
+      cancelAnimationFrame(particleRaf);
+      window.removeEventListener('resize', resizeCanvas);
+      observer.disconnect();
+    }
+  });
+  observer.observe(uiRoot, { childList: true });
+
+  // ---- Button actions ----
+  document.getElementById('btn-new').onclick = () => {
+    uiRoot.innerHTML = '';
+    showPresidentCutscene(() => startGame(false));
+  };
+  document.getElementById('btn-sandbox').onclick = () => startGame(true);
   const cont = document.getElementById('btn-continue');
-  cont.onclick = ()=>{
+  cont.onclick = () => {
     if (cont.classList.contains('disabled')) return;
     loadGame(); startGame(false, true);
   };
+  document.getElementById('btn-settings').onclick = () => showSettings();
+}
+
+// ==================== SETTINGS PANEL ====================
+function showSettings(){
+  // Inject panel on top of main menu
+  const existing = document.getElementById('settings-overlay');
+  if(existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'settings-overlay';
+
+  function buildHTML(){
+    return `
+      <div id="settings-panel">
+        <div class="sp-title">${LT('settings_title')}</div>
+
+        <div class="sp-row">
+          <div class="sp-label">${LT('lang_label')}</div>
+          <div class="sp-options">
+            <button class="sp-opt ${_SET.lang==='id'?'active':''}" data-act="lang-id">${LT('lang_id')}</button>
+            <button class="sp-opt ${_SET.lang==='en'?'active':''}" data-act="lang-en">${LT('lang_en')}</button>
+          </div>
+        </div>
+
+        <div class="sp-row">
+          <div class="sp-label">${LT('sound_label')}</div>
+          <div class="sp-options">
+            <button class="sp-opt ${_SET.sound?'active':''}" data-act="snd-on">${LT('sound_on')}</button>
+            <button class="sp-opt ${!_SET.sound?'active':''}" data-act="snd-off">${LT('sound_off')}</button>
+          </div>
+        </div>
+
+        <button class="sp-close" data-act="close">${LT('close')}</button>
+      </div>`;
+  }
+
+  // Inject styles once
+  if(!document.getElementById('settings-style')){
+    const st = document.createElement('style');
+    st.id = 'settings-style';
+    st.textContent = `
+      #settings-overlay{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.62);}
+      #settings-panel{background:linear-gradient(145deg,#1a0a2e,#0d1b3e);border:3px solid #7c4dff;border-radius:12px;padding:32px 36px;min-width:320px;box-shadow:0 0 40px rgba(124,77,255,.45);image-rendering:pixelated;font-family:'Press Start 2P',monospace,sans-serif;}
+      .sp-title{color:#ffe600;font-size:13px;text-align:center;margin-bottom:28px;letter-spacing:2px;text-shadow:0 0 12px #ffe600;}
+      .sp-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:16px;}
+      .sp-label{color:#ccc;font-size:8px;letter-spacing:1px;white-space:nowrap;}
+      .sp-options{display:flex;gap:8px;}
+      .sp-opt{background:#1e1040;border:2px solid #4a2080;color:#aaa;font-family:inherit;font-size:7px;padding:7px 12px;border-radius:6px;cursor:pointer;transition:all .15s;letter-spacing:1px;}
+      .sp-opt:hover{border-color:#7c4dff;color:#fff;background:#2a1060;}
+      .sp-opt.active{background:#7c4dff;border-color:#aa88ff;color:#fff;box-shadow:0 0 10px rgba(124,77,255,.6);}
+      .sp-close{display:block;margin:24px auto 0;background:#220a40;border:2px solid #7c4dff;color:#cc88ff;font-family:inherit;font-size:8px;padding:10px 24px;border-radius:6px;cursor:pointer;letter-spacing:2px;transition:all .15s;}
+      .sp-close:hover{background:#7c4dff;color:#fff;box-shadow:0 0 14px rgba(124,77,255,.5);}
+    `;
+    document.head.appendChild(st);
+  }
+
+  overlay.innerHTML = buildHTML();
+  document.body.appendChild(overlay);
+
+  function refresh(){
+    overlay.innerHTML = buildHTML();
+    bindEvents();
+  }
+
+  function bindEvents(){
+    overlay.querySelectorAll('[data-act]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const act = el.dataset.act;
+        if(act === 'close'){ overlay.remove(); return; }
+        if(act === 'lang-id'){ _SET.lang = 'id'; saveSET(); refresh(); renderMainMenu(); return; }
+        if(act === 'lang-en'){ _SET.lang = 'en'; saveSET(); refresh(); renderMainMenu(); return; }
+        if(act === 'snd-on'){  _SET.sound = true;  saveSET(); Audio.setEnabled(true);  refresh(); return; }
+        if(act === 'snd-off'){ _SET.sound = false; saveSET(); Audio.setEnabled(false); refresh(); return; }
+      };
+    });
+    // Click outside panel to close
+    overlay.onclick = (e) => { if(e.target === overlay) overlay.remove(); };
+  }
+
+
+  bindEvents();
+}
+
+// ==================== MISSION SYSTEM ====================
+function getMissionObjProgress(obj){
+  let current = 0;
+  switch(obj.type){
+    case 'roads':       current = state.buildings.filter(b=>b.type==='road').length; break;
+    case 'btype':       current = state.buildings.filter(b=>b.type===obj.btype).length; break;
+    case 'btypes':      current = state.buildings.filter(b=>obj.btypes.includes(b.type)).length; break;
+    case 'population':  current = state.population; break;
+    case 'money':       current = state.money; break;
+    case 'happiness':   current = state.happiness; break;
+    case 'jobs':        current = state.jobs.offered; break;
+    case 'income':      current = state.income; break;
+    default:            current = 0;
+  }
+  return { done: current >= obj.min, current: Math.min(current, obj.min), max: obj.min };
+}
+
+function checkMissionComplete(){
+  if (state.sandbox || state.freeMode) return false;
+  const lvl = MISSION_LEVELS[state.missionLevel - 1];
+  if (!lvl) return false;
+  return lvl.objectives.every(obj => getMissionObjProgress(obj).done);
+}
+
+function renderMissionPanel(){
+  const panel = document.getElementById('mission-panel');
+  if (!panel) return;
+  if (state.sandbox){
+    panel.style.display = 'none';
+    return;
+  }
+  if (state.freeMode){
+    panel.innerHTML = `<div style="font-family:'Press Start 2P',monospace;font-size:7px;color:#00ffff;text-shadow:0 0 8px #00ffff;">🏆 FREE MODE<br><span style="color:#aaa;font-size:6px;">Bangun sesuka hati!</span></div>`;
+    panel.style.display = 'block';
+    return;
+  }
+  const lvl = MISSION_LEVELS[state.missionLevel - 1];
+  if (!lvl){ panel.style.display='none'; return; }
+  const minimized = panel.dataset.minimized === '1';
+  const objs = lvl.objectives.map(obj => {
+    const {done, current, max} = getMissionObjProgress(obj);
+    const pct = Math.min(100, Math.round((current/max)*100));
+    const col = done ? '#00ff88' : '#00ffff';
+    const bar = minimized ? '' : `<div style="background:#0a0520;border:1px solid #2a1f4a;height:4px;margin-top:3px;"><div style="height:4px;background:${col};width:${pct}%"></div></div>`;
+    const check = done ? '✓ ' : '';
+    if(minimized) return '';
+    return `<div style="margin-top:6px;font-size:5.5px;color:${done?'#00ff88':'#ccc'}">${check}${obj.label}<div style="color:${col};font-size:5px;">${current.toLocaleString()} / ${max.toLocaleString()}</div>${bar}</div>`;
+  }).join('');
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${minimized?'0':'6px'};">
+      <span style="font-size:6px;color:#ffcc00;">LV ${state.missionLevel}/30 · ${lvl.name}</span>
+      <button onclick="window.renderMissionPanelBtn(document.getElementById('mission-panel').dataset.minimized==='1'?'0':'1')" style="background:none;border:1px solid #2a1f4a;color:#4433aa;font-family:'Press Start 2P',monospace;font-size:6px;cursor:pointer;padding:2px 5px;">${minimized?'▲':'▼'}</button>
+    </div>
+    ${objs}
+    ${!minimized?`<button onclick="window.showLevelBriefingBtn()" style="margin-top:8px;background:#0a0520;border:1px solid #4433aa;color:#7766cc;font-family:'Press Start 2P',monospace;font-size:5px;cursor:pointer;padding:4px 8px;width:100%;">📜 LIHAT BRIEFING</button>`:''}
+  `;
+}
+
+function showLevelBriefing(levelNum, onComplete){
+  if (state._missionShowing) return;
+  state._missionShowing = true;
+  const lvlData = MISSION_LEVELS[levelNum - 1];
+  if (!lvlData){ state._missionShowing=false; onComplete && onComplete(); return; }
+
+  const DIALOGUES = [
+    ...lvlData.president,
+    '【 OBJECTIVES 】\n' + lvlData.objectives.map(o=>'· '+o.label).join('\n'),
+  ];
+
+  let existing = document.getElementById('cutscene-style');
+  // reuse existing style if present
+  const styleEl = existing || document.createElement('style');
+  if(!existing){
+    styleEl.id = 'cutscene-style';
+    styleEl.textContent = `
+      #president-cutscene{position:absolute;inset:0;z-index:60;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;overflow:hidden;cursor:pointer;}
+      #cs-bg{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.18) 0%,rgba(0,0,0,.08) 45%,rgba(0,0,0,.55) 100%);}
+      #cs-scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.10) 2px,rgba(0,0,0,.10) 4px);pointer-events:none;z-index:5;}
+      #cs-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.60) 100%);pointer-events:none;z-index:4;}
+      #cs-char-wrap{position:absolute;bottom:148px;left:50%;transform:translateX(-50%);z-index:3;animation:csCharSlide .6s cubic-bezier(.2,1,.4,1) both;}
+      #cs-char-wrap img{height:360px;width:auto;image-rendering:pixelated;filter:drop-shadow(0 0 28px rgba(0,200,255,.55)) drop-shadow(4px 0 0 #000) drop-shadow(-4px 0 0 #000);}
+      @keyframes csCharSlide{from{opacity:0;transform:translateX(-50%) translateY(40px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+      #cs-dialogue{position:relative;z-index:6;width:min(800px,92vw);margin-bottom:30px;background:linear-gradient(180deg,rgba(16,12,38,.94) 0%,rgba(8,6,24,.97) 100%);border:3px solid #4433aa;border-top:5px solid #00ffff;box-shadow:6px 6px 0 #000,0 0 32px rgba(0,255,255,.15),0 0 80px rgba(0,0,0,.6);padding:18px 22px 14px;animation:csDlgUp .4s steps(4) both;}
+      @keyframes csDlgUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+      #cs-speaker{font-family:'Press Start 2P',monospace;font-size:8px;color:#00ffff;text-shadow:2px 2px 0 #000,0 0 10px #00ffff;letter-spacing:1.5px;padding-bottom:10px;border-bottom:2px solid #2a1f4a;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+      #cs-speaker::before{content:'▶';color:#cc44ff;font-size:10px;}
+      #cs-text{font-family:'Press Start 2P',monospace;font-size:7.5px;color:#eeeeff;line-height:2.1;min-height:68px;white-space:pre-wrap;text-shadow:1px 1px 0 #000;}
+      #cs-hint{font-family:'Press Start 2P',monospace;font-size:6px;color:#5544bb;text-align:right;margin-top:10px;letter-spacing:1px;}
+      #cs-hint.visible{animation:csBlink 1s steps(1) infinite;}
+      @keyframes csBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
+      #cs-progress{display:flex;gap:5px;justify-content:center;margin-top:10px;}
+      #cs-progress span{width:10px;height:4px;background:#1e1640;border:1px solid #2a1f4a;display:inline-block;}
+      #cs-progress span.done{background:#00ffff;}
+      #cs-progress span.cur{background:#cc44ff;animation:csBlink 0.8s steps(1) infinite;}
+      #cs-skip{position:absolute;top:16px;right:18px;z-index:10;font-family:'Press Start 2P',monospace;font-size:7px;background:rgba(10,8,20,.85);border:2px solid #2a1f4a;color:#4433aa;padding:6px 12px;cursor:pointer;letter-spacing:1px;box-shadow:2px 2px 0 #000;transition:border-color .1s,color .1s,box-shadow .1s;}
+      #cs-skip:hover{border-color:#ff4444;color:#ff4444;box-shadow:2px 2px 0 #ff4444;}
+      #cs-lvl-badge{position:absolute;top:16px;left:18px;z-index:10;font-family:'Press Start 2P',monospace;font-size:7px;background:rgba(10,8,20,.85);border:2px solid #cc44ff;color:#cc44ff;padding:6px 12px;letter-spacing:1px;box-shadow:2px 2px 0 #000;}
+      #cs-fade{position:absolute;inset:0;background:#000;opacity:0;z-index:9;pointer-events:none;transition:opacity .5s;}
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'president-cutscene';
+  const uiRoot = document.getElementById('ui-root');
+  overlay.innerHTML = `
+    <div id="cs-bg"></div>
+    <div id="cs-vignette"></div>
+    <div id="cs-scanlines"></div>
+    <div id="cs-char-wrap">
+      <img src="./img/assets/char/char.png" alt="The President" draggable="false"/>
+    </div>
+    <div id="cs-dialogue">
+      <div id="cs-speaker">THE PRESIDENT</div>
+      <div id="cs-text"></div>
+      <div id="cs-hint">▼ CLICK ATAU TEKAN SPASI</div>
+      <div id="cs-progress">${DIALOGUES.map(()=>`<span></span>`).join('')}</div>
+    </div>
+    <div id="cs-lvl-badge">LEVEL ${levelNum}/30</div>
+    <button id="cs-skip">SKIP ▶▶</button>
+    <div id="cs-fade"></div>
+  `;
+  uiRoot.appendChild(overlay);
+
+  const textEl   = overlay.querySelector('#cs-text');
+  const hintEl   = overlay.querySelector('#cs-hint');
+  const fadeEl   = overlay.querySelector('#cs-fade');
+  const progress = overlay.querySelectorAll('#cs-progress span');
+
+  let audioCtx2 = null;
+  function ac2(){ return audioCtx2||(audioCtx2=new(window.AudioContext||window.webkitAudioContext)()); }
+  function beep2(freq,dur,vol=0.07,type='square',delay=0){
+    try{const c=ac2(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(vol,c.currentTime+delay);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+delay+dur);o.start(c.currentTime+delay);o.stop(c.currentTime+delay+dur+0.01);}catch(e){}
+  }
+  const PITCHES=[784,880,988,1047,1175,1319];
+  function playTypeBeep2(){beep2(PITCHES[Math.floor(Math.random()*PITCHES.length)],0.042,0.055);}
+  function playAdvance2(){beep2(523,0.07,0.09);beep2(659,0.07,0.09,'square',0.08);beep2(784,0.1,0.09,'square',0.16);}
+  function playEnd2(){beep2(523,0.08,0.1);beep2(659,0.08,0.1,'square',0.1);beep2(784,0.08,0.1,'square',0.2);beep2(1047,0.2,0.12,'square',0.3);}
+
+  let dlgIdx=0, typing=false, typeTimer=null, fullText='';
+  function updateProg2(){progress.forEach((s,i)=>{s.className=i<dlgIdx?'done':i===dlgIdx?'cur':'';}); }
+  function showDlg2(idx){
+    if(idx>=DIALOGUES.length){
+      playEnd2(); hintEl.className=''; hintEl.textContent='';
+      fadeEl.style.opacity='1';
+      setTimeout(()=>{ overlay.remove(); if(!existing)styleEl.remove(); state._missionShowing=false; onComplete&&onComplete(); },600);
+      return;
+    }
+    updateProg2(); fullText=DIALOGUES[idx]; textEl.textContent=''; hintEl.className=''; hintEl.textContent='▼ CLICK ATAU TEKAN SPASI';
+    let ci=0; typing=true; clearInterval(typeTimer);
+    typeTimer=setInterval(()=>{
+      if(ci>=fullText.length){clearInterval(typeTimer);typing=false;hintEl.className='visible';return;}
+      textEl.textContent+=fullText[ci];
+      if(fullText[ci]!==' '&&fullText[ci]!=='\n'&&ci%2===0)playTypeBeep2();
+      ci++;
+    },36);
+  }
+  function advance2(){
+    if(typing){clearInterval(typeTimer);typing=false;textEl.textContent=fullText;hintEl.className='visible';}
+    else{playAdvance2();dlgIdx++;showDlg2(dlgIdx);}
+  }
+  function skipAll2(){clearInterval(typeTimer);typing=false;playEnd2();fadeEl.style.opacity='1';setTimeout(()=>{overlay.remove();if(!existing)styleEl.remove();state._missionShowing=false;onComplete&&onComplete();},500);}
+
+  overlay.addEventListener('click', advance2);
+  overlay.querySelector('#cs-skip').addEventListener('click', e=>{e.stopPropagation();skipAll2();});
+  function onKey2(e){
+    if(e.code==='Escape'){e.preventDefault();skipAll2();return;}
+    if(e.code==='Space'||e.code==='Enter'||e.code==='ArrowRight'){e.preventDefault();advance2();}
+  }
+  document.addEventListener('keydown',onKey2);
+  const origOnComplete=onComplete;
+  onComplete=()=>{document.removeEventListener('keydown',onKey2);origOnComplete&&origOnComplete();};
+  showDlg2(0);
+}
+
+function showLevelCompleteScreen(levelNum, onNext){
+  const lvlData = MISSION_LEVELS[levelNum - 1];
+  const isLast = levelNum >= 30;
+  const overlay = document.createElement('div');
+  overlay.id = 'level-complete-overlay';
+  overlay.style.cssText = 'position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,10,0.88);font-family:"Press Start 2P",monospace;';
+  const objList = lvlData.objectives.map(o=>`<div style="margin:5px 0;font-size:6.5px;color:#00ff88;">✓ ${o.label}</div>`).join('');
+  overlay.innerHTML = `
+    <div style="text-align:center;max-width:600px;padding:20px;">
+      <div style="font-size:8px;color:#ffcc00;text-shadow:0 0 20px #ffcc00;letter-spacing:2px;margin-bottom:6px;">LEVEL ${levelNum} SELESAI!</div>
+      <div style="font-size:11px;color:#00ffff;text-shadow:0 0 30px #00ffff;margin-bottom:16px;">${lvlData.name}</div>
+      <div style="background:rgba(0,255,136,0.08);border:2px solid #00ff88;padding:12px;margin-bottom:14px;">${objList}</div>
+      <div style="font-size:9px;color:#ffdd44;margin-bottom:18px;">+$${lvlData.reward.toLocaleString()} REWARD!</div>
+      ${isLast
+        ? `<div style="font-size:7px;color:#cc44ff;margin-bottom:16px;line-height:2;">Selamat! Kamu telah menyelesaikan semua 30 Level!<br>Mode Bebas kini aktif — bangun sesuka hatimu!</div>`
+        : `<div style="font-size:7px;color:#aaa;margin-bottom:16px;">Level berikutnya siap menunggumu...</div>`}
+      <button id="lvl-next-btn" style="background:#0a0520;border:3px solid #00ffff;color:#00ffff;font-family:'Press Start 2P',monospace;font-size:9px;padding:14px 30px;cursor:pointer;box-shadow:0 0 20px rgba(0,255,255,.4);letter-spacing:2px;">
+        ${isLast ? '🏆 MODE BEBAS' : 'LEVEL BERIKUTNYA ▶'}
+      </button>
+      <div style="font-size:5px;color:#2a1f4a;margin-top:12px;">Auto-lanjut dalam <span id="lvl-timer">30</span> detik...</div>
+    </div>
+  `;
+  document.getElementById('ui-root').appendChild(overlay);
+  let t = 30;
+  const tim = setInterval(()=>{
+    t--;
+    const el = document.getElementById('lvl-timer');
+    if(el) el.textContent = t;
+    if(t<=0){ clearInterval(tim); overlay.remove(); onNext&&onNext(); }
+  }, 1000);
+  document.getElementById('lvl-next-btn').onclick = ()=>{ clearInterval(tim); overlay.remove(); onNext&&onNext(); };
+}
+
+function advanceMissionLevel(){
+  if (state._missionShowing) return;
+  const lvl = state.missionLevel;
+  state.money += MISSION_LEVELS[lvl-1].reward;
+  Audio.playLevelUp();
+  renderTopBar();
+  showLevelCompleteScreen(lvl, ()=>{
+    if(lvl >= 30){
+      state.freeMode = true;
+      renderMissionPanel();
+      notify('🏆 Mode Bebas Aktif!','Selamat! Kini kamu bebas membangun Nusabox sesuka hati!','success');
+    } else {
+      state.missionLevel = lvl + 1;
+      state._missionChecked = false;
+      renderMissionPanel();
+      showLevelBriefing(state.missionLevel, ()=>{});
+    }
+  });
+}
+
+function showPresidentCutscene(onComplete){
+  const DIALOGUES = [
+    'Selamat datang di Nusabox!\nSaya adalah Presiden negeri ini.',
+    'Saya sudah tidak sanggup lagi mengurus\nkota ini karna kebodohan saya.\nTolong bantu saya mengelolanya...',
+    'Mulailah dengan membangun JALAN\nuntuk menghubungkan setiap wilayah kota.',
+    'Lalu buat ZONA PERUMAHAN\nagar warga bisa pindah dan menetap disini.',
+    'Jangan lupa bangun PEMBANGKIT LISTRIK\ndan instalasi AIR -- tanpa itu kota tidak bisa berfungsi.',
+    'Bangun gedung KOMERSIAL dan INDUSTRI\nuntuk mendapatkan pajak dan membuka lapangan kerja.',
+    'Perhatikan kebahagiaan warga.\nBangun TAMAN dan FASILITAS PUBLIK agar mereka senang.',
+    'Saya percayakan kota ini kepadamu,\nWalikota. Semoga sukses membangun Nusabox!',
+  ];
+
+  // --- inject cutscene styles ---
+  const styleEl = document.createElement('style');
+  styleEl.id = 'cutscene-style';
+  styleEl.textContent = `
+    #president-cutscene{position:absolute;inset:0;z-index:60;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;overflow:hidden;cursor:pointer;}
+    #cs-bg{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.18) 0%,rgba(0,0,0,.08) 45%,rgba(0,0,0,.55) 100%);}
+    #cs-scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.10) 2px,rgba(0,0,0,.10) 4px);pointer-events:none;z-index:5;}
+    #cs-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.60) 100%);pointer-events:none;z-index:4;}
+    #cs-char-wrap{position:absolute;bottom:148px;left:50%;transform:translateX(-50%);z-index:3;animation:csCharSlide .6s cubic-bezier(.2,1,.4,1) both;}
+    #cs-char-wrap img{height:360px;width:auto;image-rendering:pixelated;filter:drop-shadow(0 0 28px rgba(0,200,255,.55)) drop-shadow(4px 0 0 #000) drop-shadow(-4px 0 0 #000);}
+    @keyframes csCharSlide{from{opacity:0;transform:translateX(-50%) translateY(40px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+    #cs-dialogue{position:relative;z-index:6;width:min(800px,92vw);margin-bottom:30px;background:linear-gradient(180deg,rgba(16,12,38,.94) 0%,rgba(8,6,24,.97) 100%);border:3px solid #4433aa;border-top:5px solid #00ffff;box-shadow:6px 6px 0 #000,0 0 32px rgba(0,255,255,.15),0 0 80px rgba(0,0,0,.6);padding:18px 22px 14px;animation:csDlgUp .4s steps(4) both;}
+    @keyframes csDlgUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+    #cs-speaker{font-family:'Press Start 2P',monospace;font-size:8px;color:#00ffff;text-shadow:2px 2px 0 #000,0 0 10px #00ffff;letter-spacing:1.5px;padding-bottom:10px;border-bottom:2px solid #2a1f4a;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+    #cs-speaker::before{content:'▶';color:#cc44ff;font-size:10px;}
+    #cs-text{font-family:'Press Start 2P',monospace;font-size:7.5px;color:#eeeeff;line-height:2.1;min-height:68px;white-space:pre-wrap;text-shadow:1px 1px 0 #000;}
+    #cs-hint{font-family:'Press Start 2P',monospace;font-size:6px;color:#5544bb;text-align:right;margin-top:10px;letter-spacing:1px;}
+    #cs-hint.visible{animation:csBlink 1s steps(1) infinite;}
+    @keyframes csBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
+    #cs-progress{display:flex;gap:5px;justify-content:center;margin-top:10px;}
+    #cs-progress span{width:10px;height:4px;background:#1e1640;border:1px solid #2a1f4a;display:inline-block;}
+    #cs-progress span.done{background:#00ffff;}
+    #cs-progress span.cur{background:#cc44ff;animation:csBlink 0.8s steps(1) infinite;}
+    #cs-skip{position:absolute;top:16px;right:18px;z-index:10;font-family:'Press Start 2P',monospace;font-size:7px;background:rgba(10,8,20,.85);border:2px solid #2a1f4a;color:#4433aa;padding:6px 12px;cursor:pointer;letter-spacing:1px;box-shadow:2px 2px 0 #000;transition:border-color .1s,color .1s,box-shadow .1s;}
+    #cs-skip:hover{border-color:#ff4444;color:#ff4444;box-shadow:2px 2px 0 #ff4444;}
+    #cs-fade{position:absolute;inset:0;background:#000;opacity:0;z-index:9;pointer-events:none;transition:opacity .5s;}
+  `;
+  document.head.appendChild(styleEl);
+
+  // --- build DOM ---
+  const overlay = document.createElement('div');
+  overlay.id = 'president-cutscene';
+
+  overlay.innerHTML = `
+    <div id="cs-bg"></div>
+    <div id="cs-vignette"></div>
+    <div id="cs-scanlines"></div>
+    <div id="cs-char-wrap">
+      <img src="./img/assets/char/char.png" alt="The President" draggable="false"/>
+    </div>
+    <div id="cs-dialogue">
+      <div id="cs-speaker">THE PRESIDENT</div>
+      <div id="cs-text"></div>
+      <div id="cs-hint">▼ CLICK ATAU TEKAN SPASI</div>
+      <div id="cs-progress">${DIALOGUES.map((_,i)=>`<span></span>`).join('')}</div>
+    </div>
+    <button id="cs-skip">SKIP ▶▶</button>
+    <div id="cs-fade"></div>
+  `;
+  uiRoot.appendChild(overlay);
+
+  const textEl   = overlay.querySelector('#cs-text');
+  const hintEl   = overlay.querySelector('#cs-hint');
+  const fadeEl   = overlay.querySelector('#cs-fade');
+  const progress = overlay.querySelectorAll('#cs-progress span');
+
+  // --- 8-bit audio ---
+  let audioCtx = null;
+  function ac(){ return audioCtx || (audioCtx = new (window.AudioContext||window.webkitAudioContext)()); }
+
+  function beep(freq, dur, vol=0.07, type='square', delay=0){
+    try{
+      const c=ac(), o=c.createOscillator(), g=c.createGain();
+      o.connect(g); g.connect(c.destination);
+      o.type=type; o.frequency.value=freq;
+      g.gain.setValueAtTime(vol, c.currentTime+delay);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime+delay+dur);
+      o.start(c.currentTime+delay); o.stop(c.currentTime+delay+dur+0.01);
+    }catch(e){}
+  }
+
+  const TYPING_PITCHES = [784,880,988,1047,1175,1319];
+  function playTypeBeep(){
+    beep(TYPING_PITCHES[Math.floor(Math.random()*TYPING_PITCHES.length)], 0.042, 0.055);
+  }
+  function playAdvance(){
+    beep(523,0.07,0.09); beep(659,0.07,0.09,undefined,0.08); beep(784,0.1,0.09,undefined,0.16);
+  }
+  function playEnd(){
+    beep(523,0.08,0.1); beep(659,0.08,0.1,undefined,0.1); beep(784,0.08,0.1,undefined,0.2); beep(1047,0.2,0.12,undefined,0.3);
+  }
+
+  // --- typewriter ---
+  let dlgIdx = 0;
+  let typing  = false;
+  let typeTimer = null;
+  let fullText  = '';
+
+  function updateProgress(){
+    progress.forEach((s,i)=>{
+      s.className = i < dlgIdx ? 'done' : i === dlgIdx ? 'cur' : '';
+    });
+  }
+
+  function showDlg(idx){
+    if(idx >= DIALOGUES.length){
+      playEnd();
+      hintEl.className='';
+      hintEl.textContent='';
+      fadeEl.style.opacity='1';
+      setTimeout(()=>{ overlay.remove(); styleEl.remove(); onComplete(); }, 600);
+      return;
+    }
+    updateProgress();
+    fullText = DIALOGUES[idx];
+    textEl.textContent = '';
+    hintEl.className = '';
+    hintEl.textContent = '▼ CLICK ATAU TEKAN SPASI';
+    let ci = 0;
+    typing = true;
+    clearInterval(typeTimer);
+    typeTimer = setInterval(()=>{
+      if(ci >= fullText.length){ clearInterval(typeTimer); typing=false; hintEl.className='visible'; return; }
+      textEl.textContent += fullText[ci];
+      if(fullText[ci]!=' ' && fullText[ci]!=='\n' && ci%2===0) playTypeBeep();
+      ci++;
+    }, 36);
+  }
+
+  function advance(){
+    if(typing){
+      clearInterval(typeTimer);
+      typing = false;
+      textEl.textContent = fullText;
+      hintEl.className = 'visible';
+    } else {
+      playAdvance();
+      dlgIdx++;
+      showDlg(dlgIdx);
+    }
+  }
+
+  overlay.addEventListener('click', advance);
+
+  function skipAll(){
+    clearInterval(typeTimer);
+    typing = false;
+    playEnd();
+    fadeEl.style.opacity = '1';
+    setTimeout(()=>{ overlay.remove(); styleEl.remove(); onComplete(); }, 500);
+  }
+
+  overlay.querySelector('#cs-skip').addEventListener('click', e => { e.stopPropagation(); skipAll(); });
+
+  function onKey(e){
+    if(e.code==='Escape'){ e.preventDefault(); skipAll(); return; }
+    if(e.code==='Space'||e.code==='Enter'||e.code==='ArrowRight'){ e.preventDefault(); advance(); }
+  }
+  document.addEventListener('keydown', onKey);
+  // clean up key listener when done
+  const origComplete = onComplete;
+  onComplete = ()=>{ document.removeEventListener('keydown', onKey); origComplete(); };
+
+  showDlg(0);
+}
+
+// ==================== LAND EXPANSION SYSTEM ====================
+const LAND_TIERS = (function(){
+  // Generate tiers: 20→25→30→35→40→45→50→55→60→65→70→75→80→85→90→95→100
+  // Price grows exponentially: base * 1.6^step
+  const tiers = [];
+  const steps = [25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100];
+  let basePrice = 60000;
+  for(let i=0;i<steps.length;i++){
+    const s = steps[i];
+    const ask = Math.round(basePrice);
+    tiers.push({
+      toSize: s,
+      label: `${s}×${s} Petak`,
+      wiwiAsk: ask,
+      deal1: Math.round(ask * 0.82),
+      deal2: Math.round(ask * 0.66),
+    });
+    basePrice *= 1.65;
+  }
+  return tiers;
+})();
+
+function getNextLandTier(){ return LAND_TIERS.find(t => t.toSize > state.landSize) || null; }
+
+function updateLandBorderMesh(){
+  if (state._landBorderMesh){ scene.remove(state._landBorderMesh); state._landBorderMesh = null; }
+  if (state.landSize >= GRID) return;
+  const { min } = getLandBounds();
+  const size = state.landSize * TILE;
+  const offset = min * TILE - HALF + size / 2;
+  const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(size, 0.1, size));
+  const mat = new THREE.LineBasicMaterial({ color: 0xff8800 });
+  const mesh = new THREE.LineSegments(geo, mat);
+  mesh.position.set(offset, 0.35, offset);
+  scene.add(mesh);
+  state._landBorderMesh = mesh;
+}
+
+function doExpandLand(toSize, cost){
+  if (state.money < cost){ notify('Uang Kurang!','Dana tidak cukup untuk membeli tanah ini.','danger'); return; }
+  state.money -= cost;
+  state.landSize = toSize;
+  // Actually grow the 3D map
+  updateGroundAndGrid();
+  if (state._landBorderMesh){ scene.remove(state._landBorderMesh); state._landBorderMesh = null; }
+  renderTopBar();
+  renderMinimap();
+  notify('🏞️ Tanah Dibeli!', `Wilayah kota kini ${toSize}×${toSize} petak!`, 'success');
+  Audio.playLevelUp();
+}
+
+// ---- President Advisor Cutscene (with choices) ----
+function showPresidentAdvisor(){
+  if (document.getElementById('president-advisor-scene') || state._missionShowing) return;
+
+  const hasMetTier = getNextLandTier();
+  const introduced = !!state._wiwiIntroduced;
+  const landFull = !hasMetTier;
+
+  // Build dialog lines based on situation
+  const lvlData = MISSION_LEVELS[Math.min(state.missionLevel - 1, 29)];
+  const presLines = [
+    `Walikota, ada yang bisa saya bantu?\n...walaupun saya sendiri tidak becus\nmengurus semua ini sendirian.`,
+    landFull
+      ? `Kota kita sudah memenuhi seluruh wilayah\nNusabox yang ada. Luar biasa!\nSaya bahkan tidak pernah bayangkan ini.`
+      : (!introduced
+          ? `Oh ya, soal lahan kota kita...\nSaya kenal seorang pedagang tanah, namanya Wiwi.\nDia... sopan sekali. *sedikit berkeringat*\nTapi hati-hati ya, Walikota.`
+          : `Kalau mau beli tanah, bisa saya hubungkan\nlagi dengan Pak Wiwi.\n*berbisik* Tapi jangan terlalu percaya\ndengan kata-katanya ya, Walikota.`),
+  ];
+
+  // Inject style if not exist
+  const styleId = 'pres-advisor-style';
+  if (!document.getElementById(styleId)){
+    const st = document.createElement('style');
+    st.id = styleId;
+    st.textContent = `
+      #president-advisor-scene{position:absolute;inset:0;z-index:62;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;background:linear-gradient(180deg,rgba(0,0,0,.15) 0%,rgba(0,0,0,.65) 100%);}
+      #pa-char{position:absolute;bottom:155px;right:calc(50% - 260px);animation:paSlide .5s cubic-bezier(.2,1,.4,1) both;}
+      #pa-char img{height:330px;image-rendering:pixelated;filter:drop-shadow(0 0 24px rgba(0,200,255,.5)) drop-shadow(4px 0 0 #000) drop-shadow(-4px 0 0 #000);}
+      @keyframes paSlide{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+      #pa-box{position:relative;z-index:8;width:min(820px,94vw);margin-bottom:26px;background:linear-gradient(180deg,rgba(14,8,36,.96),rgba(6,4,18,.98));border:3px solid #4433aa;border-top:5px solid #00ffff;box-shadow:6px 6px 0 #000,0 0 28px rgba(0,255,255,.12);padding:18px 22px 14px;}
+      #pa-name{font-family:'Press Start 2P',monospace;font-size:8px;color:#00ffff;text-shadow:2px 2px 0 #000,0 0 10px #00ffff;letter-spacing:1.5px;padding-bottom:9px;border-bottom:2px solid #2a1f4a;margin-bottom:11px;}
+      #pa-name::before{content:'▶ ';}
+      #pa-text{font-family:'Press Start 2P',monospace;font-size:7.5px;color:#eeeeff;line-height:2.1;min-height:62px;white-space:pre-wrap;text-shadow:1px 1px 0 #000;}
+      #pa-choices{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+      #pa-choices button{background:#0a0520;border:2px solid #4433aa;color:#aabbff;font-family:'Press Start 2P',monospace;font-size:6.5px;padding:9px 14px;cursor:pointer;transition:all .12s;letter-spacing:.5px;}
+      #pa-choices button:hover{border-color:#00ffff;color:#fff;box-shadow:0 0 10px rgba(0,255,255,.3);}
+      #pa-choices button.gold{border-color:#885500;color:#ffcc88;}
+      #pa-choices button.gold:hover{border-color:#ffaa00;background:#1a0800;box-shadow:0 0 10px rgba(255,160,0,.3);}
+      #pa-choices button.dim{border-color:#221a44;color:#443366;cursor:not-allowed;}
+      #pa-hint{font-family:'Press Start 2P',monospace;font-size:6px;color:#5544bb;text-align:right;margin-top:8px;letter-spacing:1px;animation:paBlink 1s steps(1) infinite;}
+      @keyframes paBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
+      #pa-close-btn{position:absolute;top:14px;right:16px;z-index:10;font-family:'Press Start 2P',monospace;font-size:7px;background:rgba(10,8,20,.85);border:2px solid #2a1f4a;color:#4433aa;padding:5px 10px;cursor:pointer;letter-spacing:1px;}
+      #pa-close-btn:hover{border-color:#ff4444;color:#ff4444;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'president-advisor-scene';
+  overlay.innerHTML = `
+    <div id="pa-char"><img src="./img/assets/char/char.png" draggable="false"/></div>
+    <div id="pa-box">
+      <div id="pa-name">THE PRESIDENT</div>
+      <div id="pa-text"></div>
+      <div id="pa-choices"></div>
+      <div id="pa-hint"></div>
+    </div>
+    <button id="pa-close-btn">✖ TUTUP</button>
+  `;
+  document.getElementById('ui-root').appendChild(overlay);
+
+  const textEl    = overlay.querySelector('#pa-text');
+  const choicesEl = overlay.querySelector('#pa-choices');
+  const hintEl    = overlay.querySelector('#pa-hint');
+
+  let typeTimer = null;
+  let typeIdx   = 0;
+  let typing    = false;
+  let fullTxt   = '';
+  let pendingDone = null;
+
+  function playTypeBeepPA(){
+    try{
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const o=ac.createOscillator(), g=ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      const pitches=[784,880,988,1047];
+      o.frequency.value = pitches[Math.floor(Math.random()*pitches.length)];
+      o.type='square'; g.gain.setValueAtTime(0.05, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.04);
+      o.start(); o.stop(ac.currentTime+0.045);
+    }catch(e){}
+  }
+
+  function typeText(txt, onDone){
+    clearInterval(typeTimer);
+    textEl.textContent=''; choicesEl.innerHTML=''; hintEl.textContent='';
+    fullTxt = txt; typing = true; typeIdx = 0; pendingDone = onDone || null;
+    typeTimer = setInterval(()=>{
+      if(typeIdx >= fullTxt.length){
+        clearInterval(typeTimer); typing=false;
+        hintEl.textContent='▼ KLIK UNTUK LANJUT';
+        const cb = pendingDone; pendingDone = null;
+        if(cb) cb();
+        return;
+      }
+      textEl.textContent += fullTxt[typeIdx];
+      if(fullTxt[typeIdx]!==' '&&fullTxt[typeIdx]!=='\n'&&typeIdx%2===0) playTypeBeepPA();
+      typeIdx++;
+    }, 32);
+  }
+
+  function skipType(){
+    if(typing){
+      clearInterval(typeTimer); typing=false;
+      textEl.textContent=fullTxt; hintEl.textContent='';
+      const cb = pendingDone; pendingDone = null;
+      if(cb) cb();
+    }
+  }
+
+  function showChoices(buttons){
+    hintEl.textContent = '';
+    choicesEl.innerHTML = '';
+    buttons.forEach(({label, cls, action})=>{
+      const b = document.createElement('button');
+      if(cls) b.className=cls;
+      b.textContent = label;
+      b.onclick = ()=>{ if(b.classList.contains('dim')) return; action(); };
+      choicesEl.appendChild(b);
+    });
+  }
+
+  function close(){ clearInterval(typeTimer); overlay.remove(); }
+
+  // Click to skip typing
+  overlay.querySelector('#pa-box').addEventListener('click', ()=>{ if(typing) skipType(); });
+  overlay.querySelector('#pa-close-btn').addEventListener('click', e=>{ e.stopPropagation(); close(); });
+
+  // ---- Dialog flow ----
+  function stepIntro(){
+    typeText(presLines[0], ()=>{
+      typeText(presLines[1], stepShowMenu);
+    });
+  }
+
+  function stepShowMenu(){
+    const tier = getNextLandTier();
+    const noLand = !tier;
+    const buttons = [
+      {
+        label: noLand ? '🏞️ Tanah Sudah Penuh' : (introduced ? '🏞️ Hubungi Pak Wiwi' : '🏞️ Kenalkan Pak Wiwi'),
+        cls: noLand ? 'dim' : 'gold',
+        action: ()=>{ if(noLand) return; introduced ? callWiwiDirect(close) : stepIntroduceWiwi(close); }
+      },
+      { label: '📜 Briefing Level Ini', action: ()=>{ close(); showLevelBriefing(state.missionLevel, ()=>{}); } },
+      { label: `📋 Level ${state.missionLevel}/30 — ${lvlData.name}`, cls:'dim', action:()=>{} },
+      { label: '✖ Tidak Perlu', action: close },
+    ];
+    showChoices(buttons);
+  }
+
+  function stepIntroduceWiwi(onDone){
+    state._wiwiIntroduced = true;
+    typeText(
+      `Baik, izinkan saya kenalkan...\n*memanggil seseorang dari balik pintu*\n\nNamanya Wiwi. Pedagang tanah paling\n"terpercaya" di Nusabox. *sedikit berkeringat*\n\nDia akan menawarkan tanah untuk\nmemperluas wilayah kota kita.\n\nTapi ingat, Walikota...\nberhati-hatilah. 😅`,
+      ()=>{
+        showChoices([
+          { label: '👤 Temui Pak Wiwi', cls:'gold', action: ()=>{ close(); showWiwiNegotiationFull(); } },
+          { label: '↩ Nanti Saja', action: close },
+        ]);
+      }
+    );
+  }
+
+  function callWiwiDirect(closeFn){
+    typeText(
+      `Baik, saya panggilkan Pak Wiwi sekarang.\n*menelepon*\n\nAh, dia sudah ada di depan pintu...\nCepat sekali. *mengerutkan dahi*\n\nIngat Walikota, jangan langsung\nsetuju dengan harga pertamanya!`,
+      ()=>{
+        showChoices([
+          { label: '💼 Temui Pak Wiwi', cls:'gold', action: ()=>{ close(); showWiwiNegotiationFull(); } },
+          { label: '↩ Nanti Saja', action: close },
+        ]);
+      }
+    );
+  }
+
+  stepIntro();
+}
+
+// ---- Wiwi Negotiation ----
+function showWiwiNegotiationFull(){
+  const tier = getNextLandTier();
+  if (!tier){
+    notify('Tanah Penuh!','Kamu sudah membeli semua tanah yang tersedia di Nusabox!','success');
+    return;
+  }
+
+  // Inject style once
+  if (!document.getElementById('wiwi-style')){
+    const st = document.createElement('style');
+    st.id = 'wiwi-style';
+    st.textContent = `
+      #wiwi-overlay{position:absolute;inset:0;z-index:65;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;background:linear-gradient(180deg,rgba(0,0,0,.3) 0%,rgba(0,0,0,.7) 100%);}
+      #wiwi-char{position:absolute;bottom:160px;right:calc(50% - 300px);animation:wiwiSlide .5s cubic-bezier(.2,1,.4,1) both;}
+      #wiwi-char img{height:340px;width:auto;image-rendering:pixelated;filter:drop-shadow(0 0 24px rgba(255,180,0,.4)) drop-shadow(4px 0 0 #000) drop-shadow(-4px 0 0 #000);}
+      @keyframes wiwiSlide{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+      #wiwi-dialogue{position:relative;z-index:6;width:min(820px,94vw);margin-bottom:28px;background:linear-gradient(180deg,rgba(20,10,8,.95),rgba(10,5,4,.98));border:3px solid #885500;border-top:5px solid #ffaa00;box-shadow:6px 6px 0 #000,0 0 32px rgba(255,160,0,.12);padding:18px 22px 14px;}
+      #wiwi-name{font-family:'Press Start 2P',monospace;font-size:8px;color:#ffaa00;text-shadow:2px 2px 0 #000,0 0 10px #ffaa00;letter-spacing:1.5px;padding-bottom:10px;border-bottom:2px solid #443300;margin-bottom:12px;}
+      #wiwi-name::before{content:'💼 ';font-size:11px;}
+      #wiwi-text{font-family:'Press Start 2P',monospace;font-size:7.5px;color:#fff0dd;line-height:2.2;min-height:70px;white-space:pre-wrap;text-shadow:1px 1px 0 #000;}
+      #wiwi-choices{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+      #wiwi-choices button{background:#120800;border:2px solid #885500;color:#ffcc88;font-family:'Press Start 2P',monospace;font-size:6.5px;padding:9px 14px;cursor:pointer;transition:all .12s;letter-spacing:.5px;}
+      #wiwi-choices button:hover{background:#331500;border-color:#ffaa00;color:#fff;box-shadow:0 0 10px rgba(255,160,0,.4);}
+      #wiwi-choices button.danger{border-color:#882200;color:#ff8866;}
+      #wiwi-choices button.danger:hover{background:#331000;border-color:#ff4400;}
+      #wiwi-subtitle{font-family:'Press Start 2P',monospace;font-size:5.5px;color:#aa6600;margin-top:6px;font-style:italic;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'wiwi-overlay';
+  overlay.innerHTML = `
+    <div id="wiwi-char"><img src="./img/assets/char/wiwi.PNG" alt="Wiwi" draggable="false"/></div>
+    <div id="wiwi-dialogue">
+      <div id="wiwi-name">WIWI — Pemilik Tanah Nusabox</div>
+      <div id="wiwi-text"></div>
+      <div id="wiwi-subtitle"></div>
+      <div id="wiwi-choices"></div>
+    </div>
+  `;
+  document.getElementById('ui-root').appendChild(overlay);
+
+  const textEl     = overlay.querySelector('#wiwi-text');
+  const subEl      = overlay.querySelector('#wiwi-subtitle');
+  const choicesEl  = overlay.querySelector('#wiwi-choices');
+
+  let typeTimer = null;
+  function typeText(txt, sub, onDone){
+    clearInterval(typeTimer);
+    textEl.textContent = ''; subEl.textContent = sub||'';
+    choicesEl.innerHTML = '';
+    let ci = 0;
+    typeTimer = setInterval(()=>{
+      if(ci >= txt.length){ clearInterval(typeTimer); onDone && onDone(); return; }
+      textEl.textContent += txt[ci]; ci++;
+    }, 30);
+  }
+
+  function showChoices(buttons){
+    choicesEl.innerHTML = '';
+    buttons.forEach(({label, cls, action})=>{
+      const b = document.createElement('button');
+      if(cls) b.className = cls;
+      b.textContent = label;
+      b.onclick = action;
+      choicesEl.appendChild(b);
+    });
+  }
+
+  function close(){ clearInterval(typeTimer); overlay.remove(); }
+
+  // ---- Negotiation state ----
+  const fmt = n => '$' + n.toLocaleString();
+
+  // STEP 1: Greeting
+  function step1(){
+    typeText(
+      `Selamat datang, Bapak/Ibu Walikota yang terhormat!\n*tersenyum manis*\n\nSaya Wiwi, pengelola tanah terbaik di Nusabox.\nSaya dengar Anda ingin memperluas wilayah kota?\n\nKebetulan sekali, saya punya lahan yang...\nsangat spesial untuk Anda. 😊`,
+      '',
+      ()=>{
+        showChoices([
+          { label: `📋 Lihat Penawaran`, action: step2 },
+          { label: `✖ Tidak Perlu`, cls:'danger', action: close },
+        ]);
+      }
+    );
+  }
+
+  // STEP 2: Quote high price
+  function step2(){
+    typeText(
+      `Ini dia yang Anda butuhkan:\n${tier.label}\n\nHarganya... *membuka buku catatan*\n\nHmm, ini lahan premium, Walikota.\nBelum termasuk biaya administrasi,\npajak notaris, dan... "uang tanda jadi" 😊\n\nTotal: ${fmt(tier.wiwiAsk)}`,
+      `* Harga sudah termasuk "biaya-biaya tersembunyi" Wiwi`,
+      ()=>{
+        const canAfford1 = state.money >= tier.wiwiAsk;
+        const canAfford2 = state.money >= tier.deal1;
+        showChoices([
+          { label: `✅ Setuju — ${fmt(tier.wiwiAsk)}`, action: ()=>step_deal(tier.wiwiAsk, 'full'), cls: canAfford1?'':'danger' },
+          { label: `💬 Tawar Dulu`, action: step3 },
+          { label: `🚶 Tidak Jadi`, cls:'danger', action: step_walkaway },
+        ]);
+      }
+    );
+  }
+
+  // STEP 3: First negotiation
+  function step3(){
+    typeText(
+      `Oh... *kedipkan mata perlahan*\n\nBaiklah, Walikota. Karena saya sangat menghormati\nAnda sebagai pemimpin kota ini...\n*menghapus beberapa angka*\n\nSaya kurangi "biaya administrasinya" sedikit.\nTapi biaya notaris tetap ya, tidak bisa ditawar. 😊\n\nJadi: ${fmt(tier.deal1)}`,
+      `* Wiwi tersenyum... tapi matanya tidak ikut tersenyum`,
+      ()=>{
+        const canAfford = state.money >= tier.deal1;
+        showChoices([
+          { label: `✅ Deal — ${fmt(tier.deal1)}`, action: ()=>step_deal(tier.deal1, 'mid'), cls: canAfford?'':'danger' },
+          { label: `💬 Tawar Lagi`, action: step4 },
+          { label: `🚶 Tidak Jadi`, cls:'danger', action: step_walkaway },
+        ]);
+      }
+    );
+  }
+
+  // STEP 4: Hard negotiation
+  function step4(){
+    typeText(
+      `Waaah... Bapak/Ibu Walikota ini... *tarik napas panjang*\n\nHmm, tidak apa-apa. Saya paham kondisi keuangan kota.\n*menghapus lebih banyak angka dengan muka datar*\n\nIni penawaran TERAKHIR saya, ya.\nSaya sudah potong habis semua margin saya.\n\nSaya rugi kalau begini... *tapi tetap senyum* 😊\n\nFinal price: ${fmt(tier.deal2)}`,
+      `* Wiwi tidak pernah rugi. Tidak pernah.`,
+      ()=>{
+        const canAfford = state.money >= tier.deal2;
+        showChoices([
+          { label: `✅ Deal Keras — ${fmt(tier.deal2)}`, action: ()=>step_deal(tier.deal2, 'hard'), cls: canAfford?'':'danger' },
+          { label: `🚶 Tidak Jadi`, cls:'danger', action: step_walkaway },
+        ]);
+      }
+    );
+  }
+
+  function step_deal(price, mode){
+    if (state.money < price){
+      typeText(
+        `*Wiwi mengangkat alis*\n\nUang Anda... kurang, Walikota.\n*tersenyum simpul*\n\nTidak apa-apa. Kapan-kapan saja kalau sudah ada uangnya.\nSaya tidak kemana-mana kok. 😊`,
+        `* Harga bisa lebih tinggi saat Anda kembali`,
+        ()=>{ showChoices([{ label:'✖ Tutup', cls:'danger', action: close }]); }
+      );
+      return;
+    }
+    const msgs = {
+      full: `Terima kasih, Walikota! Transaksi selesai! 🎉\n*bersalaman dengan erat*\n\nAnda tidak akan menyesal membeli dari saya!\nTanah ini sudah resmi milik kota Nusabox. 😊`,
+      mid:  `Baik, deal! *menandatangani dokumen*\n\nSenang berbisnis dengan Anda, Walikota.\nJangan lupa, kalau butuh tanah lagi, hubungi saya! 😊`,
+      hard: `*menghela napas dramatis*\n\nOke, deal... Demi hubungan baik kita.\nTapi saya catat ini ya, Walikota. *mengangguk pelan*\n\nKota Anda sudah lebih besar sekarang! 😊`,
+    };
+    typeText(msgs[mode], '', ()=>{
+      showChoices([{ label:'🎉 Selesai!', action: ()=>{ close(); doExpandLand(tier.toSize, price); }}]);
+    });
+  }
+
+  function step_walkaway(){
+    typeText(
+      `*Wiwi mengangguk sopan*\n\nTidak apa-apa, Walikota. Saya mengerti.\n\nPintu saya selalu terbuka untuk Anda. 😊\n\n...Meskipun harganya mungkin sedikit berbeda\nlain kali kita bertemu. *senyum tipis*`,
+      '',
+      ()=>{ showChoices([{ label:'🚶 Pergi', cls:'danger', action: close }]); }
+    );
+  }
+
+  step1();
 }
 
 function startGame(sandbox, loaded=false){
@@ -3866,9 +6443,19 @@ function startGame(sandbox, loaded=false){
     state.sandbox = sandbox;
     state.population = 0;
     state.day = 1;
+    state.missionLevel = 1;
+    state.freeMode = false;
+    state._missionChecked = false;
+    state._missionShowing = false;
+    state.landSize = sandbox ? 40 : 20;
+    state._landBorderMesh = null;
+    state._wiwiIntroduced = false;
   }
   state.running = true;
-  
+
+  // Initialize citizen life simulation after loading buildings
+  setTimeout(() => CitizenSim.generate(), 500);
+
   // Switch to gameplay music
   Audio.playGameplayMusic();
   
@@ -3877,7 +6464,13 @@ function startGame(sandbox, loaded=false){
   renderTopBar();
   renderInfoPanel();
   renderMinimap();
+  renderMissionPanel();
+  updateGroundAndGrid();
   notify('Welcome, Mayor!', 'Build roads first, then zone residential to grow population.', 'success');
+  // Show level 1 briefing for new story game
+  if (!sandbox && !loaded){
+    setTimeout(()=>showLevelBriefing(1,()=>{}), 800);
+  }
 }
 
 function buildHUD(){
@@ -3896,7 +6489,11 @@ function buildHUD(){
         <button data-mode="happiness">😀</button>
       </div>
     </div>
+    <button id="president-advisor-btn" title="Tanya Presiden" style="position:absolute;bottom:215px;right:12px;z-index:35;width:54px;height:54px;border-radius:50%;border:3px solid #00ffff;background:rgba(8,4,24,.92);cursor:pointer;padding:0;overflow:hidden;box-shadow:0 0 14px rgba(0,255,255,.35),2px 2px 0 #000;transition:box-shadow .15s,border-color .15s;">
+      <img src="./img/assets/char/char.png" style="width:100%;height:100%;object-fit:cover;object-position:center top;image-rendering:pixelated;" draggable="false"/>
+    </button>
     <div id="cursor-info"></div>
+    <div id="mission-panel" style="position:absolute;bottom:20px;left:20px;z-index:30;background:rgba(8,4,24,0.92);border:2px solid #4433aa;border-top:3px solid #00ffff;padding:10px 14px;min-width:220px;max-width:280px;font-family:'Press Start 2P',monospace;box-shadow:4px 4px 0 #000,0 0 20px rgba(0,255,255,.1);"></div>
     <div id="cheat-box">
       <span id="cheat-label">💬</span>
       <input id="cheat-input" type="text" placeholder="Enter cheat code..." autocomplete="off" spellcheck="false"/>
@@ -3910,6 +6507,14 @@ function buildHUD(){
       state.minimapMode = b.dataset.mode;
     };
   });
+
+  // Wire president advisor button via addEventListener (avoids global scope issues)
+  const presBtn = document.getElementById('president-advisor-btn');
+  if(presBtn){
+    presBtn.addEventListener('click', ()=>showPresidentAdvisor());
+    presBtn.addEventListener('mouseover', ()=>{ presBtn.style.boxShadow='0 0 24px rgba(0,255,255,.7),2px 2px 0 #000'; presBtn.style.borderColor='#88ffff'; });
+    presBtn.addEventListener('mouseout',  ()=>{ presBtn.style.boxShadow='0 0 14px rgba(0,255,255,.35),2px 2px 0 #000'; presBtn.style.borderColor='#00ffff'; });
+  }
 
   // Cheat box
   const cheatInput = document.getElementById('cheat-input');
@@ -3937,7 +6542,9 @@ function buildHUD(){
         }
         // Register building & grid
         const size = getSize(c.key);
-        state.buildings.push({ x: c.gx, z: c.gz, type: c.key, mesh: c.mesh });
+        const bEntry = { x: c.gx, z: c.gz, type: c.key, mesh: c.mesh };
+        state.buildings.push(bEntry);
+        addBuildingNightLight(bEntry);
         for (let dx=0; dx<size; dx++){
           for (let dz=0; dz<size; dz++){
             const nx = c.gx+dx, nz = c.gz+dz;
@@ -3960,7 +6567,7 @@ function buildHUD(){
         return size === 2 || size === 4;
       });
       if (targets.length === 0){
-        cheatFeedback('⚠️ No 2×2 or 4×4 buildings found!', 'error');
+        cheatFeedback('⚠️ No 2x2 or 4x4 buildings found!', 'error');
         return;
       }
       // Stagger destructions for dramatic effect
@@ -3970,6 +6577,8 @@ function buildHUD(){
           const cell = state.grid[b.x]?.[b.z];
           if (!cell || !cell.type) return;
           if (b.mesh) spawnDestruction(b.mesh);
+          // Clean up night lights
+          if(b.nightLights){ for(const {light} of b.nightLights) scene.remove(light); b.nightLights=null; }
           // Clear grid & buildings without triggering bulldoze audio each time
           const size = getSize(b.type);
           state.buildings = state.buildings.filter(bl => !(bl.x===b.x && bl.z===b.z));
@@ -3998,11 +6607,84 @@ function buildHUD(){
       cheatFeedback('⬆️ City level increased!', 'success');
       Audio.playLevelUp();
     },
+    'naik misi': () => {
+      if (state.sandbox){ cheatFeedback('⚠️ Tidak ada misi di sandbox!','error'); return; }
+      if (state.freeMode){ cheatFeedback('✅ Sudah di Free Mode!','success'); return; }
+      if (state._missionShowing){ cheatFeedback('⏳ Cutscene sedang berjalan...','warn'); return; }
+      const cur = state.missionLevel;
+      if (cur >= 30){
+        state.freeMode = true;
+        state._missionChecked = true;
+        renderMissionPanel();
+        notify('🏆 Mode Bebas Aktif!','Semua 30 level selesai!','success');
+        cheatFeedback('🏆 Free Mode diaktifkan!', 'success');
+        Audio.playLevelUp();
+      } else {
+        state.missionLevel = cur + 1;
+        state._missionChecked = false;
+        renderMissionPanel();
+        showLevelBriefing(state.missionLevel, ()=>{});
+        cheatFeedback(`⬆️ Misi naik ke Level ${state.missionLevel}!`, 'success');
+        Audio.playLevelUp();
+      }
+    },
     'bahagia': () => {
       state.happiness = 100;
       renderTopBar();
       cheatFeedback('😄 Happiness maxed!', 'success');
       Audio.playNotify('success');
+    },
+    // ---- Time cheats ----
+    'waktu pagi': () => {
+      DN.elapsed = DN.CYCLE * 0.083; // ~08:00
+      renderTopBar();
+      cheatFeedback('☀️ Waktu -> Pagi (08:00)', 'success');
+    },
+    'waktu siang': () => {
+      DN.elapsed = DN.CYCLE * 0.167; // ~10:00 full midday
+      renderTopBar();
+      cheatFeedback('☀️ Waktu -> Siang (10:00)', 'success');
+    },
+    'waktu sore': () => {
+      DN.elapsed = DN.CYCLE * 0.640; // ~17:30 sunset
+      renderTopBar();
+      cheatFeedback('🌅 Waktu -> Sore (17:30)', 'success');
+    },
+    'waktu malam': () => {
+      DN.elapsed = DN.CYCLE * 0.720; // ~21:00 deep night
+      renderTopBar();
+      cheatFeedback('🌙 Waktu -> Malam (21:00)', 'success');
+    },
+    'waktu tengah malam': () => {
+      DN.elapsed = DN.CYCLE * 0.833; // 00:00 midnight
+      renderTopBar();
+      cheatFeedback('🌙 Waktu -> Tengah Malam (00:00)', 'success');
+    },
+    // ---- Weather cheats ----
+    'hujan': () => {
+      DN.weather = 'rain';
+      DN.rainRemaining = rand(300, 900);
+      if(DN.rainMesh) DN.rainMesh.visible = true;
+      Audio.tickSfxAmbience();
+      renderTopBar();
+      notify('Hujan!', 'Cheat: hujan dipaksakan.', 'warn');
+      cheatFeedback('🌧️ Cuaca -> Hujan', 'success');
+    },
+    'cerah': () => {
+      DN.weather = 'clear';
+      DN.rainRemaining = 0;
+      DN.nextWeather = rand(120, 600);
+      if(DN.rainMesh) DN.rainMesh.visible = false;
+      Audio.tickSfxAmbience();
+      renderTopBar();
+      cheatFeedback('☀️ Cuaca -> Cerah', 'success');
+    },
+    // ---- Combined shortcut ----
+    'waktu cepat': () => {
+      // Speed through a full day in 10 real seconds -> advance elapsed by 1/10 of cycle
+      DN.elapsed = (DN.elapsed + DN.CYCLE * 0.1) % DN.CYCLE;
+      renderTopBar();
+      cheatFeedback('⏩ Lompat waktu +2.5 jam!', 'success');
     },
   };
 
@@ -4040,26 +6722,27 @@ function renderTopBar(){
   const trafficClass = state.traffic > 60 ? 'bad' : state.traffic > 30 ? 'warn' : 'good';
   const net = state.income - state.expense;
   bar.innerHTML = `
-    <div class="stat ${moneyClass}"><span class="icon">💰</span><div><div class="label">Treasury</div><div class="value">$${money.toLocaleString()}</div></div></div>
-    <div class="stat"><span class="icon">📈</span><div><div class="label">Net /day</div><div class="value" style="color:${net>=0?'var(--good)':'var(--bad)'}">${net>=0?'+':''}$${net}</div></div></div>
-    <div class="stat"><span class="icon">👥</span><div><div class="label">Population</div><div class="value">${state.population.toLocaleString()}</div></div></div>
-    <div class="stat ${happyClass}"><span class="icon">😀</span><div><div class="label">Happiness</div><div class="value">${state.happiness}%</div></div></div>
-    <div class="stat ${trafficClass}"><span class="icon">🚗</span><div><div class="label">Traffic</div><div class="value">${Math.round(state.traffic)}%</div></div></div>
-    <div class="stat"><span class="icon">🏆</span><div><div class="label">Level</div><div class="value">${['','Village','Town','City','Metropolis'][state.level]}</div></div></div>
-    <div class="stat"><span class="icon">📅</span><div><div class="label">Day</div><div class="value">${state.day}</div></div></div>
-    <div class="stat"><span class="icon">${state.weather==='sunny'?'☀️':'🌧️'}</span><div><div class="label">Weather</div><div class="value">${state.weather}</div></div></div>
+    <div class="stat ${moneyClass}"><span class="icon">${pxImg('ic_money',16)}</span><div><div class="label">Treasury</div><div class="value">$${money.toLocaleString()}</div></div></div>
+    <div class="stat"><span class="icon">${pxImg('ic_net',16)}</span><div><div class="label">Net /day</div><div class="value" style="color:${net>=0?'var(--good)':'var(--bad)'}">${net>=0?'+':''}$${net}</div></div></div>
+    <div class="stat"><span class="icon">${pxImg('ic_pop',16)}</span><div><div class="label">Population</div><div class="value">${state.population.toLocaleString()}</div></div></div>
+    <div class="stat ${happyClass}"><span class="icon">${pxImg('ic_happy',16)}</span><div><div class="label">Happiness</div><div class="value">${state.happiness}%</div></div></div>
+    <div class="stat ${trafficClass}"><span class="icon">${pxImg('ic_traffic',16)}</span><div><div class="label">Traffic</div><div class="value">${Math.round(state.traffic)}%</div></div></div>
+    <div class="stat"><span class="icon">${pxImg('ic_level',16)}</span><div><div class="label">Level</div><div class="value">${['','Village','Town','City','Metropolis'][state.level]}</div></div></div>
+    <div class="stat"><span class="icon">${pxImg('ic_day',16)}</span><div><div class="label">Day</div><div class="value">${state.day}</div></div></div>
+    <div class="stat"><span class="icon">${DN.isNight?pxImg('ic_moon',16):pxImg('ic_sunny',16)}</span><div><div class="label">Time</div><div class="value">${DN.clockStr}</div></div></div>
+    <div class="stat"><span class="icon">${DN.weather==='rain'?pxImg('ic_rainy',16):pxImg('ic_clock',16)}</span><div><div class="label">Weather</div><div class="value">${DN.weather==='rain'?'Rain':'Clear'}</div></div></div>
     <div class="spacer"></div>
     <div class="speed-controls">
-      <button class="${state.speed===0?'active':''}" data-s="0">⏸</button>
-      <button class="${state.speed===1?'active':''}" data-s="1">▶</button>
-      <button class="${state.speed===2?'active':''}" data-s="2">▶▶</button>
-      <button class="${state.speed===3?'active':''}" data-s="3">▶▶▶</button>
+      <button class="${state.speed===0?'active':''}" data-s="0">${pxImg('ic_pause',14)}</button>
+      <button class="${state.speed===1?'active':''}" data-s="1">${pxImg('ic_play',14)}</button>
+      <button class="${state.speed===2?'active':''}" data-s="2">${pxImg('ic_fast',14)}</button>
+      <button class="${state.speed===3?'active':''}" data-s="3">${pxImg('ic_faster',14)}</button>
     </div>
-    <button class="menu-btn" id="btn-help">❓ Help</button>
-    <button class="menu-btn" id="btn-dashboard">📊 Dashboard</button>
-    <button class="menu-btn" id="btn-save">💾 Save</button>
-    <button class="menu-btn" id="btn-music">🔊 Music</button>
-    <button class="menu-btn" id="btn-menu">⋮ Menu</button>
+    <button class="menu-btn" id="btn-help">${pxImg('ic_help',14)} Help</button>
+    <button class="menu-btn" id="btn-dashboard">${pxImg('ic_dash',14)} Stats</button>
+    <button class="menu-btn" id="btn-save">${pxImg('ic_save',14)} Save</button>
+    <button class="menu-btn" id="btn-music">${pxImg('ic_music',14)} Music</button>
+    <button class="menu-btn" id="btn-menu">${pxImg('ic_menu',14)} Menu</button>
   `;
   bar.querySelectorAll('.speed-controls button').forEach(b=>{
     b.onclick = ()=>setSpeed(parseInt(b.dataset.s));
@@ -4071,7 +6754,7 @@ function renderTopBar(){
   document.getElementById('btn-music').onclick = ()=>{
     _musicOn = !_musicOn;
     Audio.setMusicVol(_musicOn ? 0.35 : 0);
-    document.getElementById('btn-music').textContent = _musicOn ? '🔊 Music' : '🔇 Music';
+    document.getElementById('btn-music').innerHTML = `${pxImg('ic_music',14)} ${_musicOn ? 'Music' : 'Mute'}`;
   };
   document.getElementById('btn-menu').onclick = ()=>{ if (confirm('Return to main menu? Unsaved changes will be lost.')) location.reload(); };
 }
@@ -4088,7 +6771,7 @@ function renderConstructionMenu(){
     return `<div class="item ${state.selected===k?'active':''} ${locked?'locked':''}" data-key="${k}">
       <div class="icon">${b.icon}</div>
       <div class="name">${b.name}</div>
-      <div class="cost">${b.cost?'$'+b.cost:''}${b.size>1?` · ${b.size}×${b.size}`:''}${locked?' 🔒':''}</div>
+      <div class="cost">${b.cost?'$'+b.cost:''}${b.size>1?` · ${b.size}x${b.size}`:''}${locked?' 🔒':''}</div>
     </div>`;
   }).join('');
   menu.innerHTML = `<div class="categories">${cats}</div><div class="items">${items}</div>`;
@@ -4152,6 +6835,12 @@ window.__bulldozeSelected = ()=>{
 };
 window.__deselectBuilding = ()=>{ state.selectedBuilding = null; renderInfoPanel(); };
 
+// Expose interactive functions to window so inline onclick HTML attributes can call them
+window.showPresidentAdvisor = ()=> showPresidentAdvisor();
+window.showWiwiNegotiationFull = ()=> showWiwiNegotiationFull();
+window.showLevelBriefingBtn = ()=> showLevelBriefing(state.missionLevel, ()=>{});
+window.renderMissionPanelBtn = (min)=>{ const p=document.getElementById('mission-panel'); if(p) p.dataset.minimized=min; renderMissionPanel(); };
+
 // Notifications
 function notify(title, body, kind='info'){
   const id = Math.random().toString(36).slice(2,8);
@@ -4169,7 +6858,7 @@ function renderNotifications(){
   if (!nc) return;
   nc.innerHTML = state.notifications.map(n=>`
     <div class="notification ${n.kind}" data-id="${n.id}">
-      <div class="head">${n.title}<span class="close">×</span></div>
+      <div class="head">${n.title}<span class="close">x</span></div>
       <div class="body">${n.body}</div>
     </div>
   `).join('');
@@ -4191,8 +6880,16 @@ function renderMinimap(){
   ctx.fillStyle = '#0b1320'; ctx.fillRect(0,0,w,h);
   const cellW = w / GRID;
   const cellH = h / GRID;
+  const { min: lmin, max: lmax } = getLandBounds();
   for (let i=0;i<GRID;i++){
     for (let j=0;j<GRID;j++){
+      // Locked land - draw hatching
+      if (i < lmin || i >= lmax || j < lmin || j >= lmax){
+        ctx.fillStyle = '#111a22';
+        ctx.fillRect(i*cellW, j*cellH, cellW+0.5, cellH+0.5);
+        if ((i+j)%3===0){ ctx.fillStyle='#1a2a38'; ctx.fillRect(i*cellW,j*cellH,cellW+0.5,cellH+0.5); }
+        continue;
+      }
       const cell = state.grid[i][j];
       let col = null;
       if (state.minimapMode==='normal'){
@@ -4223,6 +6920,16 @@ function renderMinimap(){
   ctx.strokeStyle = '#4cc9f0';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(cx-12, cz-10, 24, 20);
+  // land boundary on minimap
+  if (state.landSize < GRID){
+    const bx = lmin * cellW, bz = lmin * cellH;
+    const bw = state.landSize * cellW, bh = state.landSize * cellH;
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3,3]);
+    ctx.strokeRect(bx, bz, bw, bh);
+    ctx.setLineDash([]);
+  }
 }
 
 // Dashboard modal
@@ -4264,11 +6971,11 @@ function openHelp(){
         <b>Tilt up/down</b><span><kbd>F</kbd> &nbsp; <i>or</i> &nbsp; Right-mouse drag vertical</span>
         <b>Zoom</b><span><kbd>Z</kbd> / <kbd>X</kbd> &nbsp; <i>or</i> &nbsp; Mouse wheel</span>
         <b>Pan</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrow keys / Middle-mouse drag</span>
-        <b>Build</b><span>Pick item → 1st click previews (red) → <kbd>R</kbd> to rotate → 2nd click confirms</span>
-        <b>Rotate object</b><span><kbd>R</kbd> &nbsp; — rotate 90° (works in preview mode)</span>
+        <b>Build</b><span>Pick item -> 1st click previews (red) -> <kbd>R</kbd> to rotate -> 2nd click confirms</span>
+        <b>Rotate object</b><span><kbd>R</kbd> &nbsp; -- rotate 90 deg (works in preview mode)</span>
         <b>Cancel preview</b><span>Right-click or <kbd>Esc</kbd></span>
         <b>Roads</b><span>Drag to paint (no preview)</span>
-        <b>Bulldoze</b><span>Tools → 💥 &nbsp; <i>or</i> &nbsp; <kbd>B</kbd></span>
+        <b>Bulldoze</b><span>Tools -> 💥 &nbsp; <i>or</i> &nbsp; <kbd>B</kbd></span>
         <b>Pause / Speed</b><span><kbd>0</kbd>/<kbd>Space</kbd>, <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd></span>
         <b>Cancel tool</b><span><kbd>Esc</kbd></span>
       </div>
@@ -4299,6 +7006,8 @@ function hideCursorTip(){
 function saveGame(){
   const compact = {
     money: state.money, day: state.day, level: state.level,
+    missionLevel: state.missionLevel, freeMode: state.freeMode,
+    landSize: state.landSize, wiwiIntroduced: state._wiwiIntroduced,
     happiness: state.happiness, citizens: state.citizens.length,
     buildings: state.buildings.map(b=>({x:b.x,z:b.z,t:b.type}))
   };
@@ -4309,12 +7018,18 @@ function loadGame(){
   if (!raw) return;
   const s = JSON.parse(raw);
   state.money = s.money; state.day = s.day; state.level = s.level||1;
+  state.missionLevel = s.missionLevel || 1;
+  state.freeMode = s.freeMode || false;
+  state.landSize = s.landSize || 20;
+  state._wiwiIntroduced = s.wiwiIntroduced || false;
+  state._missionChecked = false;
   for (const b of s.buildings){
     placeBuilding(b.t, b.x, b.z);
     // refund cost since we're loading
     state.money += BUILDINGS[b.t].cost;
   }
   recalcStats();
+  updateGroundAndGrid();
 }
 
 // -------------------- MAIN LOOP --------------------
@@ -4339,6 +7054,7 @@ function loop(now){
   camTarget.z = clamp(camTarget.z, -HALF, HALF);
 
   if (state.running) gameTick(dt);
+  updateRainParticles(dt);   // always update regardless of pause/speed
   updateConstructions(dt);
   updateDestructions(dt);
   updateWaterAnimation(dt);
@@ -4366,6 +7082,7 @@ window.addEventListener('resize', ()=>{
 
 // -------------------- BOOT --------------------
 renderMainMenu();
+initRainParticles();
 // pre-warm GLB cache
 Object.keys(GLB_MODELS).forEach(k => loadGLBTemplate(k).catch(()=>{}));
 requestAnimationFrame(loop);

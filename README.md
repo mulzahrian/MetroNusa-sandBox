@@ -1,67 +1,72 @@
-# 🌆 MetroNusa sandBox
+# City Empire: Modern Metropolis
 
-**MetroNusa-sandBox** is an open-source sandbox city-building game prototype built with **Three.js**.  
-It focuses on creating a city-building experience inspired by Indonesia’s environment, culture, and urban atmosphere.
+A modern, browser-based **city builder + simulation** built with [Three.js](https://threejs.org/) and [Vite](https://vitejs.dev/).
+Build roads, zone districts, manage utilities, watch citizens move in, and grow a village into a thriving metropolis.
 
-This project is currently a **mockup / prototype**, designed as a foundation for a future full-scale game that will be developed using a dedicated game engine.
+## Features
 
----
+- 🏙️ Grid-based 3D city with low-poly modern visuals
+- 🛣️ Roads, residential / commercial / industrial / office zones
+- ⚡ Utilities: power plants & water (with grid coverage)
+- 🌳 Parks, schools, hospitals, police, fire stations
+- 👥 Citizen simulation (name, age, job, education, happiness)
+- 💸 Live economy: taxes, expenses, treasury
+- 😀 Happiness system driven by services, pollution, traffic
+- 🚦 Traffic & vehicle simulation along the road network
+- 🌦️ Weather & seasons
+- 🌪️ Random disasters (fire, earthquake, flood)
+- 🏛️ Districts, Smart City controls, City Dashboard
+- 🗺️ Mini-map with multiple overlays
+- 💾 Save / load via localStorage
 
-## 🚀 Overview
-
-MetroNusa_sandBox lets you experiment with building cities in a 3D environment.  
-It’s not a final product yet — think of it as a **playground for ideas, systems, and visual direction**.
-
-The goal is to explore:
-- City-building mechanics
-- Indonesian-inspired urban design
-- Lightweight web-based 3D simulation using Three.js
-
----
-
-## 🎮 Features (Prototype Stage)
-
-- 🏗️ Basic city-building system (place / arrange objects)
-- 🌏 Indonesian-inspired environment concept
-- 🧱 Simple 3D scene rendering using Three.js
-- 🖱️ Mouse interaction for navigation and object placement
-- 💡 Lightweight web-based simulation (runs in browser)
-
----
-
-## 🧠 Project Vision
-
-This project is not just a game — it’s a **foundation for something bigger**.
-
-Future direction includes:
-- Migrating to a full game engine (Unity / Unreal / custom engine)
-- Advanced city simulation (traffic, population, economy)
-- More realistic Indonesian architecture and landscapes
-- Improved UI/UX and gameplay systems
-- Multiplayer or shared sandbox mode (long-term idea)
-
----
-
-## 🛠️ Tech Stack
-
-- **Three.js** – 3D rendering in the browser
-- **JavaScript / TypeScript** – Core logic
-- **HTML5 / CSS3** – UI layer
-- Future upgrade target: full game engine integration
-
----
-
-## 📦 Installation
+## Quick start
 
 ```bash
-# clone the repo
-git clone https://github.com/your-username/MetroNusa_sandBox.git
-
-# enter project folder
-cd MetroNusa_sandBox
-
-# install dependencies
 npm install
-
-# run development server
 npm run dev
+```
+
+Then open the printed URL (default `http://localhost:5173`).
+
+## Controls
+
+| Action                | Input                                  |
+| --------------------- | -------------------------------------- |
+| Rotate camera         | Right mouse drag                        |
+| Pan camera            | Middle mouse drag / WASD / Arrow keys   |
+| Zoom                  | Mouse wheel                             |
+| Place / paint         | Left click (drag for roads & zones)     |
+| Bulldoze              | Select 🚧 *Bulldoze* tool, then click   |
+| Cancel tool / Close   | `Esc`                                   |
+| Pause / Speed         | Buttons in top bar or `1` `2` `3` `0`  |
+
+## Project structure
+
+```
+src/
+├── main.js                  # Bootstrap
+├── config/                  # Static game data (buildings, zones, constants)
+├── core/                    # Game loop, engine, event bus
+├── world/                   # Grid, tiles, terrain, skybox
+├── entities/                # Building / Road / Vehicle / Citizen
+├── systems/                 # Economy, Population, Traffic, Happiness…
+├── rendering/               # Renderer, camera, lighting, mesh factories
+├── input/                   # Input + build tool state machine
+├── ui/                      # All HUD panels (vanilla DOM components)
+├── utils/                   # Math, RNG, storage helpers
+└── styles/                  # CSS for menus and HUD
+```
+
+Each system is decoupled and communicates through a global `EventBus`,
+so new mechanics can be added without touching the core loop.
+
+## Roadmap
+
+- Multiplayer mode
+- Workshop / mod loader
+- Detailed supply chain visualization
+- Politics & elections subsystem
+
+---
+
+© City Empire. Built for learning & fun.
