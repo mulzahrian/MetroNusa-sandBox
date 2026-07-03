@@ -620,12 +620,12 @@ const sun = new THREE.DirectionalLight(0xfff5cc, 1.6);
 sun.position.set(50, 90, 40);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -60;
-sun.shadow.camera.right = 60;
-sun.shadow.camera.top = 60;
-sun.shadow.camera.bottom = -60;
+sun.shadow.camera.left = -150;
+sun.shadow.camera.right = 150;
+sun.shadow.camera.top = 150;
+sun.shadow.camera.bottom = -150;
 sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far = 200;
+sun.shadow.camera.far = 600;
 scene.add(sun);
 
 const hemi = new THREE.HemisphereLight(0xd4eeff, 0x88cc66, 0.6);
@@ -2978,6 +2978,14 @@ function bulldoze(gx, gz){
   const cell = state.grid[gx][gz];
   if (!cell.type) return false;
 
+  // Slum interception — show Acel cutscene instead of direct demolish
+  if (cell.type === '__slum__' || cell.isSlum){
+    showAcelCutscene(gx, gz, (resolved) => {
+      if (resolved) renderMinimap();
+    });
+    return false; // Don't proceed with normal bulldoze
+  }
+
   // Cancel any in-progress construction first
   const cIdx = state.constructions.findIndex(c => c.gx===gx && c.gz===gz);
   if (cIdx !== -1){
@@ -3503,6 +3511,338 @@ gltfLoader.load('./model/car/kereta-api.glb', (gltf) => {
   console.warn('[train] kereta-api.glb failed, using procedural fallback', err);
   _trainGlbPending = false;
 });
+
+// ===================== SLUM SYSTEM =====================
+// Slum buildings appear after mission level 10, every 2 in-game hours
+// They raise pollution, drain money, and can only be cleared via Acel cutscene
+
+const SLUM_TEMPLATES = [];  // [{scene, size}]  loaded GLBs
+let _slumGlbLoaded = 0;
+const SLUM_PATHS = [
+  './model/slum/slum1.glb',
+  './model/slum/slum2.glb',
+];
+// Load slum models
+SLUM_PATHS.forEach((path, idx) => {
+  gltfLoader.load(path, (gltf) => {
+    const root = gltf.scene;
+    // Normalize to ~1.5 world units tall (compact shack)
+    for (let pass = 0; pass < 2; pass++){
+      const box = new THREE.Box3().setFromObject(root);
+      const sz  = box.getSize(new THREE.Vector3());
+      if (sz.y < 0.001) break;
+      root.scale.multiplyScalar(1.5 / sz.y);
+    }
+    const box2 = new THREE.Box3().setFromObject(root);
+    const center = box2.getCenter(new THREE.Vector3());
+    root.position.x -= center.x;
+    root.position.z -= center.z;
+    root.position.y -= box2.min.y;
+    root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+    SLUM_TEMPLATES.push(root);
+    _slumGlbLoaded++;
+    console.log(`[slum] loaded ${path}`);
+  }, undefined, (err) => {
+    console.warn(`[slum] failed ${path}`, err);
+    _slumGlbLoaded++;
+  });
+});
+
+// State tracking for slums
+// Each slum: { gx, gz, mesh, pollutionDrain, moneydrain }
+if (!state.slums) state.slums = [];
+if (typeof state._slumTimer === 'undefined') state._slumTimer = 0;
+if (typeof state._slumDrainAcc === 'undefined') state._slumDrainAcc = 0;
+// 2 in-game hours = 2/24 * DN.CYCLE seconds real
+const SLUM_SPAWN_INTERVAL = () => (2 / 24) * DN.CYCLE;  // ~900 real seconds at 1x
+const SLUM_POLLUTION   = 8;  // pollution added per slum (per recalc)
+const SLUM_MONEY_DRAIN = 150; // Rp per game-day per slum
+const SLUM_BRIBE_BASE  = 2000; // cost to bribe Acel and demolish
+const SLUM_RELOCATE_BASE = 4500; // cost to relocate residents
+
+function makeSlumMesh(){
+  if (SLUM_TEMPLATES.length > 0){
+    const tmpl = SLUM_TEMPLATES[Math.floor(Math.random() * SLUM_TEMPLATES.length)];
+    const clone = tmpl.clone(true);
+    // Random rotation
+    clone.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+    return clone;
+  }
+  // Procedural fallback: ramshackle box
+  const g = new THREE.Group();
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0x7a1a1a });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.4), wallMat);
+  body.position.y = 0.5;
+  body.castShadow = true;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.6, 4), roofMat);
+  roof.position.y = 1.3;
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+  g.add(body, roof);
+  return g;
+}
+
+function spawnSlum(){
+  if (!state.running || state.paused) return;
+  const count = 2 + (Math.random() < 0.4 ? 1 : 0); // 2 or 3
+  const { min, max } = getLandBounds();
+  let placed = 0;
+  let attempts = 0;
+  while (placed < count && attempts < 120){
+    attempts++;
+    const gx = min + Math.floor(Math.random() * (max - min));
+    const gz = min + Math.floor(Math.random() * (max - min));
+    if (!inBounds(gx, gz)) continue;
+    if (state.grid[gx][gz].type !== null) continue;
+    // Prefer edge-ish tiles (slums appear on outskirts)
+    const mid = Math.floor((min + max) / 2);
+    const dist = Math.max(Math.abs(gx - mid), Math.abs(gz - mid));
+    if (dist < Math.floor((max - min) * 0.3) && Math.random() < 0.6) continue; // bias toward edges
+
+    const mesh = makeSlumMesh();
+    const wp = gridToWorld(gx, gz);
+    mesh.position.set(wp.x, 0, wp.z);
+    mesh.userData.isSlum = true;
+    scene.add(mesh);
+    state.grid[gx][gz] = { type: '__slum__', mesh, rotation: 0, isSlum: true };
+    state.slums.push({ gx, gz, mesh });
+    placed++;
+  }
+  if (placed > 0){
+    recalcStats();
+    notify('🏚️ Pemukiman Kumuh!',
+      `${placed} rumah kumuh muncul di pinggiran kota! Segera tangani!`, 'danger');
+    Audio.playError && Audio.playError();
+  }
+}
+
+// Called every game tick — checks timer and drains money
+function tickSlums(dt, mult){
+  if (!state.running) return;
+  const missionOk = state.missionLevel >= 10 || state.freeMode || state.sandbox;
+  if (!missionOk) return;
+  if (!Array.isArray(state.slums)) state.slums = [];
+
+  // Timer for spawning
+  state._slumTimer = (state._slumTimer || 0) + dt * mult;
+  if (state._slumTimer >= SLUM_SPAWN_INTERVAL()){
+    state._slumTimer = 0;
+    if (state.slums.length < 12) spawnSlum(); // cap at 12 slum tiles total
+  }
+
+  // Money drain every game-day tick (handled in gameTick but we tally here)
+  // Actually drain accumulated during dayTick (see gameTick integration)
+}
+
+// Recalc adds slum pollution on top of building pollution
+function getSlumPollution(){
+  return (state.slums ? state.slums.length : 0) * SLUM_POLLUTION;
+}
+function getSlumDrain(){
+  return (state.slums ? state.slums.length : 0) * SLUM_MONEY_DRAIN;
+}
+
+// ---- Acel cutscene (shown when bulldozing a slum) ----
+function showAcelCutscene(gx, gz, onResolved){
+  const slumIdx = state.slums.findIndex(s => s.gx === gx && s.gz === gz);
+  if (slumIdx === -1){ onResolved && onResolved(false); return; }
+
+  const bribeCost    = SLUM_BRIBE_BASE  + state.slums.length * 200;
+  const relocateCost = SLUM_RELOCATE_BASE + state.slums.length * 400;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'acel-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(0,0,0,0.72);font-family:'Segoe UI',sans-serif;
+  `;
+
+  overlay.innerHTML = `
+    <div id="acel-panel" style="
+      position:relative;width:100%;max-width:720px;margin:0 auto 40px;
+      background:linear-gradient(135deg,#1a0f00 0%,#2d1800 60%,#1a0f00 100%);
+      border:2px solid #c8860a;border-radius:16px;padding:28px 32px 24px;
+      box-shadow:0 0 60px #c8860a66;
+    ">
+      <div style="display:flex;align-items:flex-end;gap:24px;">
+        <img src="./img/assets/char/acel.PNG"
+             style="width:120px;height:auto;object-fit:contain;filter:drop-shadow(0 0 12px #c8860a88);
+                    border-radius:8px;border:2px solid #c8860a44;flex-shrink:0;">
+        <div style="flex:1;">
+          <div style="color:#c8860a;font-size:12px;font-weight:600;letter-spacing:2px;margin-bottom:6px;">
+            ACEL — PENJILAT PROFESIONAL
+          </div>
+          <div id="acel-text" style="
+            color:#f5e6c8;font-size:15px;line-height:1.7;min-height:80px;
+            background:rgba(0,0,0,0.3);border-radius:8px;padding:12px 14px;
+            border-left:3px solid #c8860a;
+          ">...</div>
+          <div id="acel-hint" style="color:#c8860a88;font-size:11px;margin-top:6px;cursor:pointer;">
+            ▼ klik untuk lanjut
+          </div>
+        </div>
+      </div>
+      <div id="acel-choices" style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const textEl    = overlay.querySelector('#acel-text');
+  const hintEl    = overlay.querySelector('#acel-hint');
+  const choicesEl = overlay.querySelector('#acel-choices');
+
+  let typeTimer2 = null;
+  let typing2 = false;
+  let full2 = '';
+  let pendingDone2 = null;
+
+  function typeAcel(txt, cb){
+    clearInterval(typeTimer2);
+    textEl.textContent = ''; choicesEl.innerHTML = '';
+    hintEl.style.visibility = 'hidden';
+    full2 = txt; typing2 = true; pendingDone2 = cb || null;
+    let i = 0;
+    typeTimer2 = setInterval(()=>{
+      if (i >= full2.length){
+        clearInterval(typeTimer2); typing2 = false;
+        hintEl.style.visibility = 'visible';
+        const cb2 = pendingDone2; pendingDone2 = null; cb2 && cb2();
+        return;
+      }
+      textEl.textContent += full2[i++];
+    }, 28);
+  }
+
+  function skipAcel(){
+    if (typing2){
+      clearInterval(typeTimer2); typing2 = false;
+      textEl.textContent = full2; hintEl.style.visibility = 'visible';
+      const cb2 = pendingDone2; pendingDone2 = null; cb2 && cb2();
+    }
+  }
+
+  overlay.addEventListener('click', (e)=>{
+    if (e.target.closest('#acel-choices')) return;
+    skipAcel();
+  });
+
+  function showChoices(items){
+    choicesEl.innerHTML = '';
+    items.forEach(({ label, color, fn }) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = `
+        padding:10px 18px;border-radius:8px;border:2px solid ${color};
+        background:rgba(0,0,0,0.5);color:${color};cursor:pointer;font-size:13px;
+        font-weight:600;transition:all 0.2s;
+      `;
+      btn.onmouseenter = () => { btn.style.background = color + '33'; };
+      btn.onmouseleave = () => { btn.style.background = 'rgba(0,0,0,0.5)'; };
+      btn.addEventListener('click', () => { choicesEl.innerHTML=''; fn(); });
+      choicesEl.appendChild(btn);
+    });
+  }
+
+  function close(success){
+    overlay.style.transition = 'opacity 0.4s';
+    overlay.style.opacity = '0';
+    setTimeout(() => { overlay.remove(); onResolved && onResolved(success); }, 400);
+  }
+
+  function doDestroy(){
+    const slum = state.slums[slumIdx];
+    if (slum){
+      scene.remove(slum.mesh);
+      state.grid[slum.gx][slum.gz] = { type:null, mesh:null, rotation:0 };
+      state.slums.splice(slumIdx, 1);
+      recalcStats();
+      Audio.playBulldoze && Audio.playBulldoze();
+    }
+  }
+
+  // Step 1 — intro
+  typeAcel(`Eh bos! Santai santai dulu... 😊\n\nSaya Acel, "konsultan relasi warga" di sini. Saya yang ngurusin orang-orang ini ya bos. Mereka ga bakal kemana-mana kalau ga ada "pendekatan" dulu... hehe. Bos mau gimana ini, kita bicarain baik-baik aja kan?`, () => {
+    showChoices([
+      {
+        label: `💸 Suap Acel — Rp${bribeCost.toLocaleString('id-ID')}`,
+        color: '#ffaa00',
+        fn: () => {
+          if (state.money < bribeCost){
+            typeAcel(`Aduh bos... uangnya kurang nih. Masa mau nawar-nawar sama Acel? Hehe... tambahin dulu ya bos! 😅`, () => {
+              showChoices([{ label:'Tutup', color:'#888', fn:()=>close(false) }]);
+            });
+            return;
+          }
+          state.money -= bribeCost;
+          renderTopBar();
+          typeAcel(`Nah gitu dong bos! Langsung cair! 😁\nOke okelah, saya atur mereka pindah sekarang. Tapi ingat ya bos, besok-besok ada lagi yang minta "perhatian"... hehe. Acel selalu siap! 🤝`, () => {
+            doDestroy();
+            notify('💸 Suap Berhasil', `Acel mengurus segalanya. -Rp${bribeCost.toLocaleString('id-ID')}`, 'warn');
+            showChoices([{ label:'Terima kasih (tutup)', color:'#c8860a', fn:()=>close(true) }]);
+          });
+        }
+      },
+      {
+        label: `🏠 Relokasi ke Perumahan — Rp${relocateCost.toLocaleString('id-ID')}`,
+        color: '#44cc88',
+        fn: () => {
+          if (state.money < relocateCost){
+            typeAcel(`Wah bos, duitnya ga cukup buat relokasi. Dana relokasi itu besar bos, harus Rp${relocateCost.toLocaleString('id-ID')}. Mau pilih jalur lain? 😅`, () => {
+              showChoices([
+                {
+                  label: `💸 Suap saja — Rp${bribeCost.toLocaleString('id-ID')}`,
+                  color: '#ffaa00',
+                  fn: () => {
+                    choicesEl.innerHTML = '';
+                    if (state.money < bribeCost){
+                      typeAcel(`Dua-duanya ga ada duitnya bos?? Hehe... tutup dulu aja ya. 🤷`, () => {
+                        showChoices([{ label:'Tutup', color:'#888', fn:()=>close(false) }]);
+                      });
+                      return;
+                    }
+                    state.money -= bribeCost;
+                    renderTopBar();
+                    typeAcel(`Oke bos! Beres! 😁`, () => {
+                      doDestroy();
+                      notify('💸 Suap Berhasil', `Acel mengurus segalanya. -Rp${bribeCost.toLocaleString('id-ID')}`, 'warn');
+                      showChoices([{ label:'Tutup', color:'#c8860a', fn:()=>close(true) }]);
+                    });
+                  }
+                },
+                { label:'Biarkan saja', color:'#888', fn:()=>close(false) }
+              ]);
+            });
+            return;
+          }
+          state.money -= relocateCost;
+          renderTopBar();
+          // Reward: relocating gives back long-term tax boost
+          state._slumRelocationBonus = (state._slumRelocationBonus || 0) + 1;
+          typeAcel(`Wah bagus sekali bos! Bos memang hati emas! 🥹\nWarga-warga ini akan dipindah ke perumahan layak. Mereka akan jadi warga produktif yang bayar pajak dengan senang hati! Kota bos pasti makin maju!`, () => {
+            doDestroy();
+            // Relocate: gain some population and small permanent income boost
+            state.money += Math.round(relocateCost * 0.1); // 10% subsidi balik
+            state.population = Math.min(state.population + 15, state.homes);
+            notify('🏠 Relokasi Sukses!',
+              `Warga kumuh kini produktif! +15 populasi, bonus pajak permanen. -Rp${relocateCost.toLocaleString('id-ID')}`, 'success');
+            Audio.playLevelUp && Audio.playLevelUp();
+            showChoices([{ label:'Luar biasa! (tutup)', color:'#44cc88', fn:()=>close(true) }]);
+          });
+        }
+      },
+      {
+        label: '🚫 Biarkan Saja',
+        color: '#888',
+        fn: () => {
+          typeAcel(`Iya bos, santai aja... mereka juga ga kemana-mana kok. Tapi ingat ya bos, lama-lama polusinya makin parah dan duit bos makin terkuras~ Hehe. 😏`, () => {
+            showChoices([{ label:'Tutup', color:'#888', fn:()=>close(false) }]);
+          });
+        }
+      }
+    ]);
+  });
+}
 
 function makeTrain(){
   if (TRAIN_GLB_TEMPLATE){
@@ -4993,7 +5333,7 @@ function recalcStats(){
   state.jobs.offered = jobs;
   state.power = { gen: powerGen, demand: power };
   state.water = { gen: waterGen, demand: water };
-  state.pollution = pollution;
+  state.pollution = pollution + getSlumPollution();
   state._happyBonus = happyBonus;
   state._taxBase = tax;
 }
@@ -5003,6 +5343,11 @@ function gameTick(dt){
   const mult = state.speed;
   updateDayNight(dt * mult);
   state.tickSinceLastDay += dt * mult;
+
+  // Slum tick (timer-based, every 2 in-game hours)
+  if (!Array.isArray(state.slums)) state.slums = [];
+  if (typeof state._slumTimer === 'undefined') state._slumTimer = 0;
+  tickSlums(dt, mult);
 
   // every "day" (3 real seconds at 1x)
   if (state.tickSinceLastDay >= 3){
@@ -5041,8 +5386,9 @@ function gameTick(dt){
     }
 
     // economy
+    const slumDrain = getSlumDrain();
     const income = Math.round((state._taxBase||0) + state.population*0.6);
-    const expense = Math.round(state.buildings.length*2 + state.power.demand*1 + state.water.demand*1);
+    const expense = Math.round(state.buildings.length*2 + state.power.demand*1 + state.water.demand*1 + slumDrain);
     state.income = income;
     state.expense = expense;
     state.money += (income - expense);
@@ -5351,6 +5697,10 @@ canvas.addEventListener('mousemove', e=>{
     const f = camDist * 0.0015;
     camTarget.x -= (dx*Math.cos(camAngle) - dy*Math.sin(camAngle)) * f;
     camTarget.z -= (dx*Math.sin(camAngle) + dy*Math.cos(camAngle)) * f;
+    // Clamp pan to the current world size
+    const worldHalf = (state.landSize * TILE) / 2 + 10;
+    camTarget.x = clamp(camTarget.x, -worldHalf, worldHalf);
+    camTarget.z = clamp(camTarget.z, -worldHalf, worldHalf);
     updateCamera();
   }
   lastMouse.x = e.clientX; lastMouse.y = e.clientY;
@@ -5358,7 +5708,8 @@ canvas.addEventListener('mousemove', e=>{
 canvas.addEventListener('contextmenu', e=>e.preventDefault());
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
-  camDist = clamp(camDist + e.deltaY*0.05, 15, 130);
+  const maxDist = Math.max(130, state.landSize * TILE * 1.5);
+  camDist = clamp(camDist + e.deltaY*0.05, 15, maxDist);
   updateCamera();
 }, { passive:false });
 
@@ -6655,6 +7006,27 @@ function buildHUD(){
         Audio.playLevelUp();
       }
     },
+    'spawn kumuh': () => {
+      const prevMissionLevel = state.missionLevel;
+      state.missionLevel = 10; // temporarily unlock slum spawning
+      spawnSlum();
+      state.missionLevel = prevMissionLevel;
+      cheatFeedback('🏚️ Rumah kumuh dimunculkan!', 'success');
+    },
+    'hapus kumuh': () => {
+      if (!state.slums || state.slums.length === 0){
+        cheatFeedback('✅ Tidak ada rumah kumuh!', 'success'); return;
+      }
+      const count = state.slums.length;
+      for (const s of state.slums){
+        scene.remove(s.mesh);
+        if (inBounds(s.gx, s.gz)) state.grid[s.gx][s.gz] = { type:null, mesh:null, rotation:0 };
+      }
+      state.slums = [];
+      recalcStats();
+      renderMinimap();
+      cheatFeedback(`🧹 ${count} rumah kumuh dihapus!`, 'success');
+    },
     'bahagia': () => {
       state.happiness = 100;
       renderTopBar();
@@ -6920,7 +7292,9 @@ function renderMinimap(){
       const cell = state.grid[i][j];
       let col = null;
       if (state.minimapMode==='normal'){
-        if (cell.type){
+        if (cell.type === '__slum__' || cell.isSlum){
+          col = '#8B2500'; // dark brown-red for slum
+        } else if (cell.type){
           col = '#' + BUILDINGS[cell.type].color.toString(16).padStart(6,'0');
         }
       } else if (state.minimapMode==='traffic'){

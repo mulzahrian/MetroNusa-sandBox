@@ -44,6 +44,15 @@ Ketik cheat di kotak input **💬** di pojok kiri bawah layar, lalu tekan **Ente
 
 ---
 
+## 🏚️ Slum (Pemukiman Kumuh)
+
+| Cheat Code | Efek |
+|---|---|
+| `spawn kumuh` | Munculkan 2-3 rumah kumuh sekarang (untuk testing) |
+| `hapus kumuh` | Hapus semua rumah kumuh sekaligus tanpa cutscene |
+
+---
+
 ## ⏰ Waktu
 
 | Cheat Code | Efek |
