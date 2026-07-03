@@ -6597,8 +6597,35 @@ function buildHUD(){
     'tambah uang': () => {
       state.money += 999999;
       renderTopBar();
-      cheatFeedback('💰 +$999,999 added!', 'success');
+      cheatFeedback('💰 +Rp999.999 ditambahkan!', 'success');
       Audio.playNotify('success');
+    },
+    'kaya raya': () => {
+      state.money += 999999999;
+      renderTopBar();
+      cheatFeedback('🤑 +Rp999.999.999 — sultan mode!', 'success');
+      Audio.playLevelUp();
+    },
+    'perbesar peta': () => {
+      const next = LAND_TIERS.find(t => t.toSize > state.landSize);
+      if (!next){
+        cheatFeedback('🏔️ Peta sudah maksimal (100×100)!', 'error');
+        return;
+      }
+      state.landSize = next.toSize;
+      updateGroundAndGrid();
+      renderTopBar();
+      renderMinimap();
+      cheatFeedback(`🗺️ Peta diperbesar ke ${next.toSize}×${next.toSize} petak!`, 'success');
+      Audio.playLevelUp();
+    },
+    'peta maksimal': () => {
+      state.landSize = 100;
+      updateGroundAndGrid();
+      renderTopBar();
+      renderMinimap();
+      cheatFeedback('🌍 Peta langsung jadi 100×100 petak!', 'success');
+      Audio.playLevelUp();
     },
     'naik level': () => {
       state.level = Math.min(4, state.level + 1);
