@@ -5441,9 +5441,12 @@ function gameTick(dt){
   const crowdF = nightF * rainF;
 
   // vehicle spawn
-  const maxVehicles = Math.max(1, Math.round(30 * crowdF));
-  if (Math.random() < 0.04 * mult * crowdF && state.vehicles.length < maxVehicles){
-    spawnVehicle();
+  const maxVehicles = Math.max(2, Math.round(8 * crowdF));
+  if (
+      Math.random() < 0.01 * mult * crowdF &&
+      state.vehicles.length < maxVehicles
+  ){
+      spawnVehicle();
   }
   // Cull excess vehicles quickly when conditions change (rain/night)
   // Don't cull taxis that are picking up or driving with a passenger
