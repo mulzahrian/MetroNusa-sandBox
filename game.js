@@ -170,7 +170,12 @@ const MISSION_LEVELS = [
   { num:1,  name:'Memulai Nusabox',       reward:10000,
     objectives:[
       { type:'roads',        min:5,  label:'Bangun 5 Jalan' },
-      { type:'btype',        btype:'house', min:3, label:'Bangun 3 Rumah' },
+      {
+    type:'btypes',
+    btypes:['res_low','res_med','res_high'],
+    min:3,
+    label:'Bangun 3 Rumah'
+}
     ],
     president:[
       'Selamat datang, Walikota baru!\nSaya Presiden Nusabox yang... tidak becus.',
@@ -182,7 +187,12 @@ const MISSION_LEVELS = [
   { num:2,  name:'Warga Pertama',          reward:15000,
     objectives:[
       { type:'population',   min:50,  label:'50 Penduduk' },
-      { type:'btype',        btype:'house', min:5, label:'Bangun 5 Rumah' },
+      {
+    type:'btypes',
+    btypes:['res_low','res_med','res_high'],
+    min:5,
+    label:'Bangun 5 Rumah'
+}
     ],
     president:[
       'Bagus! Tapi kota ini masih kosong melompong.',
@@ -5109,7 +5119,8 @@ function spawnTaxiPassenger(){
   const roads = state.buildings.filter(b => b.type === 'road');
   if (roads.length < 2) return;
   // Only spawn if few waiting already
-  if (state.taxiPassengers.filter(p => !p.claimed).length >= 4) return;
+  if (state.taxiPassengers.length >= 3)
+    return;
 
   const road = choice(roads);
   const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -5463,7 +5474,7 @@ function gameTick(dt){
   }
   // train spawn — only if metro station exists, max 1 per rail line
   const hasMetro = state.buildings.some(b => b.type === 'metro');
-  if (hasMetro && Math.random() < 0.015*mult && state.vehicles.filter(v=>v.isTrain).length < 1){
+  if (hasMetro && Math.random() < 0.01*mult && state.vehicles.filter(v=>v.isTrain).length < 1){
     spawnTrain();
   }
   updateVehicles(dt * mult);
@@ -5476,7 +5487,7 @@ function gameTick(dt){
   }
   // Taxi passenger hailing spawn
   const roads = state.buildings.filter(b => b.type === 'road');
-  if (roads.length >= 2 && Math.random() < 0.015 * mult * crowdF){
+  if (roads.length >= 2 && Math.random() < 0.002 * mult * crowdF){
     spawnTaxiPassenger();
   }
   updateTaxis(dt * mult);
