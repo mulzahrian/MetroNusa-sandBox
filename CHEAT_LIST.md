@@ -44,6 +44,15 @@ Ketik cheat di kotak input **💬** di pojok kiri bawah layar, lalu tekan **Ente
 
 ---
 
+## 🌳 Pohon
+
+| Cheat Code | Efek |
+|---|---|
+| `tanam pohon` | Spawn pohon di semua tile kosong dalam area tanah |
+| `tebang pohon` | Hapus semua pohon default dari map |
+
+---
+
 ## 🏚️ Slum (Pemukiman Kumuh)
 
 | Cheat Code | Efek |

@@ -4,6 +4,7 @@
 // =============================================================
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // ==================== SETTINGS & LANGUAGE ====================
 const _DEF_SETTINGS = { lang: 'id', sound: true };
@@ -77,6 +78,8 @@ const _IC={
   metro:      ['PPPPPPPP','PwwwwwwP','P______P','PPPPPPPP','________','_PPPPPP_','_P_DD_P_','TTTTTTTT'],
   airport:    ['___gWg__','_gWWWWg_','gWWWWWWg','_gWWWWg_','GGGGGGGG','GGDDDDGG','GGGGGGGG','TTTTTTTT'],
   bulldoze:   ['__YY____','_YYYYOY_','YYYYYYYY','OYYYYYO_','OOYYYOO_','_OOOOO__','__OOOO__','___OO___'],
+  axe:        ['____NNN_','___NnNN_','__NnnNN_','_NnnNNN_','NnnNNN__','NNNN____','NNN_____','NN______'],
+  hunt:       ['R_______','RR______','_RRR____','__RRRR__','___RRRR_','____RRRR','_____RRR','______RR'],
   // stats/UI
   ic_money:   ['__YYYY__','_YyYYYY_','YYyyyyyY','YYyYyyyY','YYyYyyyY','YYyyyyyY','_YyYYYY_','__YYYY__'],
   ic_net:     ['___NN___','__NNNN__','_NNNNNN_','NNNNNNNN','___NN___','___NN___','___NN___','___NN___'],
@@ -146,7 +149,9 @@ const BUILDINGS = {
   bus_stop:    { name:'Bus Stop',      icon:pxImg('bus_stop'),    cost:300,  cat:'transit',color:0xffcc22, accent:0x885500, h:0.5, happy:2, size:1 },
   metro:       { name:'Metro Station', icon:pxImg('metro'),       cost:5000, cat:'transit',color:0xbb55ff, accent:0x660099, h:2.2, happy:6, unlock:'metro', size:2 },
   airport:     { name:'Airport',       icon:pxImg('airport'),     cost:15000,cat:'transit',color:0xddeeff, accent:0x445566, h:1.0, happy:8, tax:200, unlock:'big', size:4 },
-  bulldoze:    { name:'Bulldoze',      icon:pxImg('bulldoze'),    cost:0,    cat:'tool',   color:0xef4444, size:1 }
+  bulldoze:    { name:'Bulldoze',      icon:pxImg('bulldoze'),    cost:0,    cat:'tool',   color:0xef4444, size:1 },
+  axe:         { name:'Tebang Pohon',  icon:pxImg('axe'),         cost:0,    cat:'tool',   color:0x44bb44, size:1 },
+  hunt:        { name:'Berburu',       icon:pxImg('hunt'),        cost:0,    cat:'tool',   color:0xcc4400, size:1 }
 };
 
 const CATEGORIES = [
@@ -157,7 +162,7 @@ const CATEGORIES = [
   { id:'util',    icon:pxImg('cat_util',16),    name:'Utilities', items:['power_coal','power_solar','power_wind','water_tile','water_pump'] },
   { id:'public',  icon:pxImg('cat_pub',16),     name:'Public',    items:['park','school','hospital','police','fire'] },
   { id:'transit', icon:pxImg('cat_transit',16), name:'Transit',   items:['bus_stop','metro','airport'] },
-  { id:'tool',    icon:pxImg('cat_tool',16),    name:'Tools',     items:['bulldoze'] }
+  { id:'tool',    icon:pxImg('cat_tool',16),    name:'Tools',     items:['bulldoze','axe','hunt'] }
 ];
 
 const FIRST_NAMES = ['Agus','Budi','Citra','Dewi','Eko','Fitri','Gita','Hadi','Indra','Joko','Kartika','Lina','Made','Nia','Oka','Putri','Rina','Sari','Tono','Udin','Vina','Wahyu','Yuli','Zaki'];
@@ -202,7 +207,7 @@ const MISSION_LEVELS = [
   },
   { num:3,  name:'Cahaya Kota',            reward:20000,
     objectives:[
-      { type:'btype',        btype:'power_plant', min:1, label:'Bangun 1 Pembangkit Listrik' },
+      { type:'btypes',       btypes:['power_coal','power_solar','power_wind'], min:1, label:'Bangun 1 Pembangkit Listrik' },
       { type:'population',   min:100, label:'100 Penduduk' },
     ],
     president:[
@@ -213,7 +218,7 @@ const MISSION_LEVELS = [
   },
   { num:4,  name:'Air Kehidupan',          reward:20000,
     objectives:[
-      { type:'btype',        btype:'water_tower', min:1, label:'Bangun 1 Menara Air' },
+      { type:'btype',        btype:'water_pump', min:1, label:'Bangun 1 Water Pump' },
       { type:'population',   min:200, label:'200 Penduduk' },
     ],
     president:[
@@ -224,7 +229,7 @@ const MISSION_LEVELS = [
   },
   { num:5,  name:'Kota Bahagia',           reward:25000,
     objectives:[
-      { type:'btypes',       btypes:['park','stadium'], min:2, label:'Bangun 2 Taman/Stadion' },
+      { type:'btypes',       btypes:['park','com_mall'], min:2, label:'Bangun 2 Taman/Mall' },
       { type:'happiness',    min:50,  label:'Kebahagiaan 50%' },
       { type:'population',   min:300, label:'300 Penduduk' },
     ],
@@ -236,7 +241,7 @@ const MISSION_LEVELS = [
   },
   { num:6,  name:'Roda Ekonomi',           reward:30000,
     objectives:[
-      { type:'btype',        btype:'shop', min:3, label:'Bangun 3 Toko' },
+      { type:'btype',        btype:'com_shop', min:3, label:'Bangun 3 Toko' },
       { type:'btype',        btype:'gas_station', min:1, label:'Bangun 1 SPBU' },
       { type:'population',   min:400, label:'400 Penduduk' },
     ],
@@ -271,7 +276,7 @@ const MISSION_LEVELS = [
   },
   { num:9,  name:'Industri Bangkit',       reward:40000,
     objectives:[
-      { type:'btype',        btype:'factory', min:2, label:'Bangun 2 Pabrik' },
+      { type:'btype',        btype:'ind_factory', min:2, label:'Bangun 2 Pabrik' },
       { type:'jobs',         min:100, label:'100 Lapangan Kerja' },
     ],
     president:[
@@ -307,7 +312,7 @@ const MISSION_LEVELS = [
   { num:12, name:'Pusat Bisnis',           reward:50000,
     objectives:[
       { type:'btype',        btype:'bank', min:1, label:'Bangun 1 Bank' },
-      { type:'btypes',       btypes:['shop','office','gas_station','bank'], min:8, label:'8 Bangunan Komersial' },
+      { type:'btypes',       btypes:['com_shop','com_mall','ind_office','bank','gas_station'], min:8, label:'8 Bangunan Komersial' },
       { type:'population',   min:1500, label:'1.500 Penduduk' },
     ],
     president:[
@@ -330,7 +335,7 @@ const MISSION_LEVELS = [
   },
   { num:14, name:'Pemadam Kebakaran',      reward:50000,
     objectives:[
-      { type:'btype',        btype:'fire_station', min:1, label:'Bangun 1 Pemadam Kebakaran' },
+      { type:'btype',        btype:'fire', min:1, label:'Bangun 1 Pemadam Kebakaran' },
       { type:'population',   min:2500, label:'2.500 Penduduk' },
     ],
     president:[
@@ -341,7 +346,7 @@ const MISSION_LEVELS = [
   },
   { num:15, name:'Kota Hijau',             reward:60000,
     objectives:[
-      { type:'btypes',       btypes:['park','stadium'], min:5, label:'5 Taman/Stadion' },
+      { type:'btypes',       btypes:['park','com_mall'], min:5, label:'5 Taman/Mall' },
       { type:'happiness',    min:65,   label:'Kebahagiaan 65%' },
       { type:'population',   min:3000, label:'3.000 Penduduk' },
     ],
@@ -364,7 +369,7 @@ const MISSION_LEVELS = [
   },
   { num:17, name:'Zona Kantor',            reward:70000,
     objectives:[
-      { type:'btype',        btype:'office', min:3, label:'Bangun 3 Kantor' },
+      { type:'btype',        btype:'ind_office', min:3, label:'Bangun 3 Kantor' },
       { type:'jobs',         min:300,  label:'300 Lapangan Kerja' },
       { type:'population',   min:5000, label:'5.000 Penduduk' },
     ],
@@ -400,7 +405,7 @@ const MISSION_LEVELS = [
   },
   { num:20, name:'Pusat Hiburan',          reward:80000,
     objectives:[
-      { type:'btype',        btype:'stadium', min:1,   label:'Bangun 1 Stadion' },
+      { type:'btype',        btype:'com_mall', min:1,   label:'Bangun 1 Mall Besar' },
       { type:'happiness',    min:72,           label:'Kebahagiaan 72%' },
       { type:'population',   min:11000,        label:'11.000 Penduduk' },
     ],
@@ -460,7 +465,7 @@ const MISSION_LEVELS = [
   { num:25, name:'Kota Sejahtera',         reward:150000,
     objectives:[
       { type:'happiness',    min:80,    label:'Kebahagiaan 80%' },
-      { type:'btypes',       btypes:['park','stadium','hospital','school'], min:10, label:'10 Fasilitas Publik' },
+      { type:'btypes',       btypes:['park','com_mall','hospital','school'], min:10, label:'10 Fasilitas Publik' },
       { type:'population',   min:28000, label:'28.000 Penduduk' },
     ],
     president:[
@@ -483,7 +488,7 @@ const MISSION_LEVELS = [
   },
   { num:27, name:'Pusat Teknologi',        reward:200000,
     objectives:[
-      { type:'btypes',       btypes:['office','skyscraper','skyscraper2','skyscraper3'], min:15, label:'15 Kantor/Pencakar Langit' },
+      { type:'btypes',       btypes:['ind_office','skyscraper','skyscraper2','skyscraper3'], min:15, label:'15 Kantor/Pencakar Langit' },
       { type:'jobs',         min:1000,  label:'1.000 Lapangan Kerja' },
       { type:'population',   min:38000, label:'38.000 Penduduk' },
     ],
@@ -559,6 +564,13 @@ const state = {
   _missionShowing: false,
   landSize: 20,
   _landBorderMesh: null,
+  _forestZone: null,
+  _desertZone: null,
+  _desertMesh: null,
+  _desertObjects: [],  // [{mesh, wx, wz, type:'rock'|'desert_tree'}] — destroyable
+  _beachZone: null,
+  _beachMesh: null,
+  _beachTrees: [],     // [{mesh, wx, wz}] — palm trees, destroyable with axe
   grid: [],
   buildings: [],     // {x,y,type,mesh}
   citizens: [],
@@ -822,7 +834,10 @@ updateGroundAndGrid();
 // Decorative trees -- loaded from model/tree/*.glb, placed randomly
 const gltfLoader = new GLTFLoader();
 const TREE_PATHS = [
-  { path: './model/tree/small_pine.glb', targetH: 0.30 },
+  { path: './model/tree/small_pine.glb',        targetH: 1.8 },
+  { path: './model/tree/trees_low_polly.glb',   targetH: 2.2 },
+  { path: './model/tree/low_poly_palm_tree.glb',targetH: 2.0 },
+  { path: './model/tree/free_tree_1.glb',       targetH: 1.6 },
 ];
 const TREE_TEMPLATES = [];
 let treesLoaded = false;
@@ -848,7 +863,11 @@ function loadTreeModels(){
       const finalH = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y;
       console.log(`[tree] loaded ${path} -- final height ${finalH.toFixed(2)}`);
       TREE_TEMPLATES.push(root);
-      if (--pending === 0){ treesLoaded = true; /* auto-spawn disabled */ }
+      if (--pending === 0){
+        treesLoaded = true;
+        // Respawn world trees with GLB models now that they're ready
+        if (state.running) respawnWorldTrees();
+      }
     }, undefined, (err) => {
       console.warn(`[tree] failed: ${path}`, err);
       if (--pending === 0){ treesLoaded = true; }
@@ -874,14 +893,587 @@ function makeTreeMesh(){
   }
   const tpl = choice(TREE_TEMPLATES);
   const clone = tpl.clone(true);
-  // Random scale variation (0.8 -- 1.2x)
-  const s = rand(0.8, 1.2);
-  clone.scale.setScalar(s);
   // Random Y rotation
   clone.rotation.y = rand(0, Math.PI * 2);
   return clone;
 }
 
+// Make a smaller tree for in-grid placement (fits within 1 tile)
+function makeSmallTreeMesh(){
+  const clone = makeTreeMesh();
+  const s = rand(0.28, 0.44);
+  clone.scale.setScalar(s);
+  return clone;
+}
+
+// Make a larger tree for outside-grid / forest placement
+function makeLargeTreeMesh(){
+  const clone = makeTreeMesh();
+  const s = rand(0.55, 0.90);
+  clone.scale.setScalar(s);
+  return clone;
+}
+
+// ---- World tree system ----
+// 1. In-grid trees: small trees on empty land tiles (can be cut)
+// 2. Out-of-grid trees: medium trees scattered outside the land boundary (decoration)
+// 3. Forest zone: one dense forest cluster somewhere outside the playable area
+
+const WORLD_TREE_DENSITY   = 0.07;  // ~7% of empty land tiles (sparse, not crowded)
+const WORLD_TREE_MIN_DIST  = 3.5;   // minimum world-unit distance between any two trees
+const FOREST_ZONE_SIZE     = 20;    // radius of the forest cluster in world units
+let   _forestCenter        = null;  // { x, z } set once on first spawn
+
+function _treesTooClose(wx, wz, existingPositions, minDist){
+  for (const p of existingPositions){
+    const dx = wx - p.x, dz = wz - p.z;
+    if (dx*dx + dz*dz < minDist*minDist) return true;
+  }
+  return false;
+}
+
+function spawnWorldTrees(){
+  if (!state.running) return;
+  if (!state._worldTrees) state._worldTrees = {};
+  if (!state._outerTrees) state._outerTrees = []; // meshes outside grid (no grid key)
+
+  // Collect all existing positions for min-distance check
+  const usedPos = [];
+  for (const key of Object.keys(state._worldTrees)){
+    const m = state._worldTrees[key];
+    if (m) usedPos.push({ x: m.position.x, z: m.position.z });
+  }
+  for (const m of state._outerTrees) usedPos.push({ x: m.position.x, z: m.position.z });
+
+  // --- 1. In-grid trees (small, inside land bounds) ---
+  const { min, max } = getLandBounds();
+  for (let gx = min; gx < max; gx++){
+    for (let gz = min; gz < max; gz++){
+      const key = `${gx}_${gz}`;
+      if (state._worldTrees[key]) continue;
+      if (state.grid[gx][gz].type !== null) continue;
+      if (Math.random() > WORLD_TREE_DENSITY) continue;
+
+      const wp = gridToWorld(gx, gz);
+      const wx = wp.x + rand(-TILE * 0.25, TILE * 0.25);
+      const wz = wp.z + rand(-TILE * 0.25, TILE * 0.25);
+      if (_treesTooClose(wx, wz, usedPos, WORLD_TREE_MIN_DIST)) continue;
+
+      const mesh = makeSmallTreeMesh();
+      mesh.position.set(wx, 0, wz);
+      mesh.userData.worldTree = true;
+      mesh.userData.gridKey  = key;
+      scene.add(mesh);
+      state._worldTrees[key] = mesh;
+      usedPos.push({ x: wx, z: wz });
+    }
+  }
+
+  // --- 2. Out-of-grid trees (medium, outside land bounds but inside GRID world) ---
+  if (state._outerTrees.length < 60){
+    const worldHalf = HALF - 2;
+    let attempts = 0;
+    while (state._outerTrees.length < 60 && attempts < 800){
+      attempts++;
+      const wx = rand(-worldHalf, worldHalf);
+      const wz = rand(-worldHalf, worldHalf);
+
+      // Skip if inside the playable land bounds
+      const gx = Math.floor((wx + HALF) / TILE);
+      const gz = Math.floor((wz + HALF) / TILE);
+      if (gx >= min && gx < max && gz >= min && gz < max) continue;
+
+      if (_treesTooClose(wx, wz, usedPos, WORLD_TREE_MIN_DIST + 1.5)) continue;
+
+      const mesh = makeLargeTreeMesh();
+      mesh.position.set(wx, 0, wz);
+      mesh.userData.outerTree = true;
+      scene.add(mesh);
+      state._outerTrees.push(mesh);
+      usedPos.push({ x: wx, z: wz });
+    }
+  }
+
+  // --- 3. Forest zone (dense cluster outside playable area, created once) ---
+  if (!_forestCenter){
+    // Pick a spot at the outer edge of the world, away from land
+    const lBoundsMin = min * TILE - HALF;
+    const lBoundsMax = max * TILE - HALF;
+    const forestCorners = [
+      { x: -HALF + FOREST_ZONE_SIZE,         z: -HALF + FOREST_ZONE_SIZE },
+      { x:  HALF - FOREST_ZONE_SIZE,         z: -HALF + FOREST_ZONE_SIZE },
+      { x: -HALF + FOREST_ZONE_SIZE,         z:  HALF - FOREST_ZONE_SIZE },
+      { x:  HALF - FOREST_ZONE_SIZE,         z:  HALF - FOREST_ZONE_SIZE },
+    ].filter(c =>
+      c.x < lBoundsMin - 5 || c.x > lBoundsMax + 5 ||
+      c.z < lBoundsMin - 5 || c.z > lBoundsMax + 5
+    );
+    _forestCenter = forestCorners.length ? choice(forestCorners)
+                                         : { x: -HALF + FOREST_ZONE_SIZE, z: -HALF + FOREST_ZONE_SIZE };
+
+    const FOREST_COUNT = 80;
+    for (let i = 0; i < FOREST_COUNT; i++){
+      // Gaussian-like cluster around forest center
+      const angle = rand(0, Math.PI * 2);
+      const r     = rand(0, FOREST_ZONE_SIZE) * Math.sqrt(Math.random()); // cluster more in center
+      const wx    = _forestCenter.x + Math.cos(angle) * r;
+      const wz    = _forestCenter.z + Math.sin(angle) * r;
+
+      // Clamp to world
+      if (Math.abs(wx) > HALF - 1 || Math.abs(wz) > HALF - 1) continue;
+      if (_treesTooClose(wx, wz, usedPos, 1.5)) continue;
+
+      const mesh = makeLargeTreeMesh();
+      // Forest trees slightly larger for density feel
+      mesh.scale.multiplyScalar(rand(1.0, 1.5));
+      mesh.position.set(wx, 0, wz);
+      mesh.userData.forestTree = true;
+      scene.add(mesh);
+      state._outerTrees.push(mesh);
+      usedPos.push({ x: wx, z: wz });
+    }
+    console.log(`[forest] spawned at (${_forestCenter.x.toFixed(1)}, ${_forestCenter.z.toFixed(1)})`);
+  }
+  if (_forestCenter){
+    state._forestZone = { cx: _forestCenter.x, cz: _forestCenter.z, radius: FOREST_ZONE_SIZE };
+  }
+  renderMinimap();
+}
+
+function clearDesertZone(){
+  if (state._desertMesh){
+    scene.remove(state._desertMesh);
+    state._desertMesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    state._desertMesh = null;
+  }
+  // Remove individually tracked destroyable objects
+  if (state._desertObjects){
+    for (const obj of state._desertObjects){
+      scene.remove(obj.mesh);
+      obj.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    }
+  }
+  state._desertObjects = [];
+}
+
+function makeDesertGroundTexture(radius){
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  // Radial gradient: sandy center → transparent edges (creates natural blending with grass)
+  const grad = ctx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  grad.addColorStop(0,    'rgba(214,175,95,0.96)');
+  grad.addColorStop(0.35, 'rgba(202,162,82,0.92)');
+  grad.addColorStop(0.60, 'rgba(188,146,70,0.80)');
+  grad.addColorStop(0.78, 'rgba(174,132,60,0.55)');
+  grad.addColorStop(0.90, 'rgba(160,118,50,0.28)');
+  grad.addColorStop(1.0,  'rgba(148,106,42,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+  // Sandy noise flecks
+  const sands = [
+    'rgba(240,205,120,0.35)', 'rgba(196,155,75,0.28)',
+    'rgba(220,185,105,0.22)', 'rgba(170,128,58,0.30)',
+    'rgba(250,215,130,0.18)',
+  ];
+  for (let i = 0; i < 1800; i++){
+    const x = Math.random()*S, y = Math.random()*S;
+    const w = Math.random()*4+1, h = Math.random()*3+1;
+    ctx.fillStyle = sands[Math.floor(Math.random()*sands.length)];
+    // fade near edges
+    const dx = x/S - 0.5, dy = y/S - 0.5;
+    const edgeDist = Math.max(0, 1 - Math.sqrt(dx*dx+dy*dy)*2.1);
+    ctx.globalAlpha = edgeDist * (0.4 + Math.random()*0.4);
+    ctx.fillRect(x, y, w, h);
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(cv);
+  return tex;
+}
+
+function spawnDesertZone(){
+  clearDesertZone();
+  state._desertZone = null;
+  if (!_forestCenter) return;
+
+  const radius = 30;
+  // Place desert at corner OPPOSITE to forest
+  // Place desert at the very edge corner OPPOSITE to forest
+  // Center at ~HALF-15 so the zone sits right at the map boundary
+  const edgeOffset = 28;
+  const cx = _forestCenter.x < 0 ? HALF - edgeOffset : -(HALF - edgeOffset);
+  const cz = _forestCenter.z < 0 ? HALF - edgeOffset : -(HALF - edgeOffset);
+
+  const desert = new THREE.Group();
+
+  // --- Sandy ground plane with gradient texture ---
+  const groundSize = radius * 2.4;
+  const sandTex = makeDesertGroundTexture(radius);
+  const sandMat = new THREE.MeshLambertMaterial({
+    map: sandTex, transparent: true, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+  });
+  const sandPlane = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize), sandMat);
+  sandPlane.rotation.x = -Math.PI / 2;
+  sandPlane.position.set(cx, 0.04, cz);
+  sandPlane.receiveShadow = true;
+  desert.add(sandPlane);
+
+  // --- Desert mountain (1 GLB, centered in zone, slightly offset) ---
+  const mountX = cx + rand(-6, 6), mountZ = cz + rand(-6, 6);
+  if (_desertMountTemplate){
+    const mount = _desertMountTemplate.clone(true);
+    mount.rotation.y = rand(0, Math.PI * 2);
+    mount.position.set(mountX, 0.04, mountZ);
+    desert.add(mount);
+  } else {
+    // Procedural fallback mesa
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(4, 8, 10, 8), new THREE.MeshLambertMaterial({color:0x8B6914}));
+    base.position.y = 5;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 4.1, 1.4, 8), new THREE.MeshLambertMaterial({color:0xC2955A}));
+    cap.position.y = 10.7;
+    g.add(base, cap);
+    g.position.set(mountX, 0.04, mountZ);
+    desert.add(g);
+  }
+
+  // --- Desert rocks (destroyable, tracked individually) ---
+  const rockCount = randInt(12, 18);
+  for (let i = 0; i < rockCount; i++){
+    const angle = rand(0, Math.PI * 2);
+    const dist  = rand(5, radius - 4) * Math.sqrt(Math.random() * 0.8 + 0.2);
+    const rx = cx + Math.cos(angle) * dist;
+    const rz = cz + Math.sin(angle) * dist;
+    let mesh;
+    if (_desertRockTemplate){
+      mesh = _desertRockTemplate.clone(true);
+      const s = rand(0.5, 2.2);
+      mesh.scale.set(s * rand(0.7,1.3), s * rand(0.5,1.0), s * rand(0.7,1.3));
+    } else {
+      mesh = new THREE.Mesh(
+        Math.random()>0.5 ? new THREE.BoxGeometry(1,1,1) : new THREE.SphereGeometry(0.6,8,6),
+        new THREE.MeshLambertMaterial({color:choice([0x7a5c32,0x6b4a22,0x8b6430])})
+      );
+      const s = rand(0.4, 1.5);
+      mesh.scale.set(s*rand(0.7,1.3), s*rand(0.5,1.0), s*rand(0.7,1.3));
+    }
+    mesh.rotation.y = rand(0, Math.PI*2);
+    mesh.rotation.z = rand(-0.2, 0.2);
+    mesh.position.set(rx, 0.05, rz);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    state._desertObjects.push({ mesh, wx: rx, wz: rz, type: 'rock' });
+  }
+
+  // --- Desert trees (destroyable, tracked individually) ---
+  const dtreeCount = randInt(6, 10);
+  for (let i = 0; i < dtreeCount; i++){
+    const angle = rand(0, Math.PI * 2);
+    const dist  = rand(8, radius - 2) * Math.sqrt(Math.random() * 0.7 + 0.3);
+    const tx = cx + Math.cos(angle) * dist;
+    const tz = cz + Math.sin(angle) * dist;
+    let mesh;
+    if (_desertTreeTemplate){
+      mesh = _desertTreeTemplate.clone(true);
+      const s = rand(0.6, 1.3);
+      mesh.scale.setScalar(s);
+    } else {
+      // Cactus fallback
+      const g = new THREE.Group();
+      const m = new THREE.MeshLambertMaterial({color:0x4a7c59});
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,2.2,8), m);
+      trunk.position.y = 1.1;
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.14,1.0,8), m);
+      arm.position.set(0.5,1.5,0); arm.rotation.z = -Math.PI/4;
+      g.add(trunk, arm);
+      mesh = g;
+    }
+    mesh.rotation.y = rand(0, Math.PI*2);
+    mesh.position.set(tx, 0.05, tz);
+    scene.add(mesh);
+    state._desertObjects.push({ mesh, wx: tx, wz: tz, type: 'desert_tree' });
+  }
+
+  scene.add(desert);
+  state._desertMesh = desert;
+  state._desertZone  = { cx, cz, radius };
+  renderMinimap();
+  console.log(`[desert] zone spawned at (${cx.toFixed(1)}, ${cz.toFixed(1)})`);
+}
+
+// ===================== BEACH ZONE =====================
+// Beach is a strip along one edge of the map (at HALF boundary).
+// UV mapping after rotation.x=-PI/2: local Y → world -Z.
+// Therefore canvas-top(V=1)→inland, canvas-bottom(V=0)→ocean for 'pz'.
+// Gradient stops are set accordingly per side.
+
+let _beachOceanMesh = null;
+let _beachWaveTime  = 0;
+
+function makeBeachSandTexture(side){
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+
+  // Determine gradient direction and which end is inland vs ocean.
+  // After rotation.x=-PI/2 on a PlaneGeometry:
+  //   local Y=-h/2 → world +depth_axis  (ocean outer)
+  //   local Y=+h/2 → world -depth_axis  (inland)
+  // Canvas: y=0(top)→UV V=1→local Y=+h/2 = INLAND
+  //         y=S(bot)→UV V=0→local Y=-h/2 = OCEAN
+  // So for pz/nz (depth along Z): top→bottom = inland→ocean.
+  // For px/nx (depth along X): UV U direction: u=0→local X=-w/2, u=1→local X=+w/2
+  //   canvas x=0→U=0→local X=-w/2→world X = center-w/2 = inland(px) or ocean(nx)
+  //   canvas x=S→U=1→local X=+w/2→world X = center+w/2 = ocean(px) or inland(nx)
+
+  let grad;
+  let fromInland; // is stop-0 the inland end?
+  if (side === 'pz' || side === 'nz'){
+    grad = ctx.createLinearGradient(0, 0, 0, S); // top→bottom
+    fromInland = (side === 'pz'); // pz: top=inland; nz: top=ocean
+  } else {
+    grad = ctx.createLinearGradient(0, 0, S, 0); // left→right
+    fromInland = (side === 'px'); // px: left=inland; nx: left=ocean
+  }
+
+  const stopsInland = [
+    [0.00, 'rgba(178,172,122,0)'],      // transparent inland edge
+    [0.12, 'rgba(198,192,140,0.32)'],   // sand/grass blend
+    [0.28, 'rgba(238,222,162,0.88)'],   // dry sand
+    [0.46, 'rgba(242,228,172,0.95)'],   // dry sand peak
+    [0.60, 'rgba(200,205,148,0.85)'],   // wet sand
+    [0.72, 'rgba(82,208,198,0.82)'],    // shallow water turquoise
+    [0.86, 'rgba(28,158,210,0.78)'],    // shallow blue
+    [0.96, 'rgba(18,118,178,0.60)'],    // deeper water
+    [1.00, 'rgba(14,100,160,0)'],       // transparent ocean outer
+  ];
+
+  const stops = fromInland ? stopsInland : [...stopsInland].reverse().map(([t,c]) => [1-t, c]).sort((a,b)=>a[0]-b[0]);
+  for (const [t, c] of stops) grad.addColorStop(t, c);
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+
+  // Sand speckle noise
+  const sands = ['rgba(255,248,205,0.22)', 'rgba(220,208,152,0.18)', 'rgba(248,238,188,0.14)'];
+  for (let i = 0; i < 1800; i++){
+    const x = Math.random() * S, y = Math.random() * S;
+    ctx.fillStyle = sands[i % sands.length];
+    ctx.globalAlpha = 0.10 + Math.random() * 0.22;
+    ctx.fillRect(x, y, Math.random() * 3 + 1, Math.random() * 2.5 + 0.8);
+  }
+  ctx.globalAlpha = 1;
+  return new THREE.CanvasTexture(cv);
+}
+
+function clearBeachZone(){
+  if (state._beachMesh){
+    scene.remove(state._beachMesh);
+    state._beachMesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    state._beachMesh = null;
+  }
+  _beachOceanMesh = null;
+  if (state._beachTrees){
+    for (const t of state._beachTrees){
+      scene.remove(t.mesh);
+      t.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    }
+    state._beachTrees = [];
+  }
+  state._beachZone = null;
+}
+
+function spawnBeachZone(){
+  clearBeachZone();
+  const fc = _forestCenter;
+  const dz = state._desertZone;
+
+  const sides = ['pz', 'nz', 'px', 'nx'];
+  let bestSide = null;
+  for (const s of sides){
+    let conflict = false;
+    if (fc){
+      if (s === 'pz' && fc.z > 0) conflict = true;
+      if (s === 'nz' && fc.z < 0) conflict = true;
+      if (s === 'px' && fc.x > 0) conflict = true;
+      if (s === 'nx' && fc.x < 0) conflict = true;
+    }
+    if (dz){
+      if (s === 'pz' && dz.cz > 0) conflict = true;
+      if (s === 'nz' && dz.cz < 0) conflict = true;
+      if (s === 'px' && dz.cx > 0) conflict = true;
+      if (s === 'nx' && dz.cx < 0) conflict = true;
+    }
+    if (!conflict){ bestSide = s; break; }
+  }
+  if (!bestSide) bestSide = 'pz';
+
+  const sign  = (bestSide === 'pz' || bestSide === 'px') ? 1 : -1;
+  const onZ   = (bestSide === 'pz' || bestSide === 'nz');
+
+  const SHORE_LEN   = HALF * 2 + 10;
+  const SAND_DEPTH  = 16;   // sand strip depth (overlaps into map by OVERLAP)
+  const OCEAN_DEPTH = 32;   // ocean plane depth (starts at HALF, for ships)
+  const OVERLAP     = 5;    // units the sand goes inside the map
+
+  // Sand center: straddles the HALF boundary
+  const sandC = sign * (HALF + SAND_DEPTH / 2 - OVERLAP);
+  // Ocean center: from HALF+OVERLAP outward
+  const oceanC = sign * (HALF + OVERLAP + OCEAN_DEPTH / 2);
+
+  const beachGroup = new THREE.Group();
+
+  // --- SAND PLANE ---
+  const sandTex = makeBeachSandTexture(bestSide);
+  const sandMat = new THREE.MeshLambertMaterial({
+    map: sandTex, transparent: true, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  const sandGeo = onZ
+    ? new THREE.PlaneGeometry(SHORE_LEN, SAND_DEPTH)
+    : new THREE.PlaneGeometry(SAND_DEPTH, SHORE_LEN);
+  const sandPlane = new THREE.Mesh(sandGeo, sandMat);
+  sandPlane.rotation.x = -Math.PI / 2;
+  sandPlane.position.set(onZ ? 0 : sandC, 0.04, onZ ? sandC : 0);
+  sandPlane.receiveShadow = true;
+  beachGroup.add(sandPlane);
+
+  // --- OCEAN PLANE (animated, subdivided for waves) ---
+  const oceanGeo = onZ
+    ? new THREE.PlaneGeometry(SHORE_LEN, OCEAN_DEPTH, 16, 10)
+    : new THREE.PlaneGeometry(OCEAN_DEPTH, SHORE_LEN, 10, 16);
+  const oceanMat = new THREE.MeshPhongMaterial({
+    color: 0x1890c8, emissive: 0x062a45, emissiveIntensity: 0.08,
+    shininess: 90, specular: 0x55bbdd,
+    transparent: true, opacity: 0.85, depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const oceanPlane = new THREE.Mesh(oceanGeo, oceanMat);
+  oceanPlane.rotation.x = -Math.PI / 2;
+  oceanPlane.position.set(onZ ? 0 : oceanC, 0.02, onZ ? oceanC : 0);
+  beachGroup.add(oceanPlane);
+  _beachOceanMesh = oceanPlane;
+
+  scene.add(beachGroup);
+  state._beachMesh = beachGroup;
+
+  // Ship patrol bounds: ships sail within the ocean plane
+  // Along axis: parallel to shore (X for pz/nz, Z for px/nx)
+  // Depth: perpendicular to shore, within [HALF+OVERLAP, HALF+OVERLAP+OCEAN_DEPTH]
+  const depthMin = sign * (HALF + OVERLAP + 2);
+  const depthMax = sign * (HALF + OVERLAP + OCEAN_DEPTH - 2);
+  state._beachZone = {
+    side: bestSide, sign, onZ,
+    sandC, oceanC, OCEAN_DEPTH,
+    shipMinAlong: -HALF + 8,
+    shipMaxAlong:  HALF - 8,
+    shipDepthMin: Math.min(depthMin, depthMax),
+    shipDepthMax: Math.max(depthMin, depthMax),
+  };
+
+  // --- PALM TREES ---
+  const palmCount = randInt(8, 14);
+  for (let i = 0; i < palmCount; i++){
+    const along  = rand(-HALF + 3, HALF - 3);
+    const inland = rand(1, 6);
+    let tx, tz;
+    if (bestSide === 'pz')      { tx = along; tz = HALF - inland; }
+    else if (bestSide === 'nz') { tx = along; tz = -(HALF - inland); }
+    else if (bestSide === 'px') { tx = HALF - inland; tz = along; }
+    else                         { tx = -(HALF - inland); tz = along; }
+    let mesh;
+    if (_beachTreeTemplate){
+      mesh = _beachTreeTemplate.clone(true);
+      mesh.scale.multiplyScalar(rand(0.8, 1.2));
+    } else {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshLambertMaterial({ color: 0x7a5c32 });
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 3.5, 7), mat);
+      trunk.position.y = 1.75; trunk.rotation.z = rand(-0.18, 0.18);
+      const lm = new THREE.MeshLambertMaterial({ color: 0x3a8a2a });
+      for (let j = 0; j < 6; j++){
+        const lf = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 2.0), lm);
+        lf.position.set(Math.cos(j/6*Math.PI*2)*0.6, 3.8, Math.sin(j/6*Math.PI*2)*0.6);
+        lf.rotation.y = j/6*Math.PI*2; lf.rotation.z = Math.PI/5; g.add(lf);
+      }
+      g.add(trunk); mesh = g;
+    }
+    mesh.rotation.y = rand(0, Math.PI * 2);
+    mesh.position.set(tx, 0, tz);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    state._beachTrees.push({ mesh, wx: tx, wz: tz });
+  }
+
+  renderMinimap();
+  console.log(`[beach] side=${bestSide} sandC=${sandC.toFixed(1)} oceanC=${oceanC.toFixed(1)}`);
+
+  // Spawn ships now that _beachZone is ready
+  if (_shipGlbLoaded >= SHIP_MODELS.length) spawnShips();
+}
+
+function updateBeachWaves(dt){
+  if (!_beachOceanMesh) return;
+  _beachWaveTime += dt;
+  const pos = _beachOceanMesh.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++){
+    const lx = pos.getX(i), ly = pos.getZ(i);
+    const wave =
+      Math.sin(lx * 0.28 + _beachWaveTime * 1.1) * 0.10 +
+      Math.sin(ly * 0.22 + _beachWaveTime * 0.85) * 0.07 +
+      Math.sin((lx - ly) * 0.18 + _beachWaveTime * 1.4) * 0.05;
+    pos.setY(i, wave);
+  }
+  pos.needsUpdate = true;
+  _beachOceanMesh.geometry.computeVertexNormals();
+  // Emissive shimmer
+  _beachOceanMesh.material.emissiveIntensity = 0.06 + Math.abs(Math.sin(_beachWaveTime * 0.35)) * 0.06;
+}
+
+function clearWorldTreeAt(gx, gz){
+  const key = `${gx}_${gz}`;
+  const mesh = state._worldTrees[key];
+  if (mesh){
+    scene.remove(mesh);
+    mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    delete state._worldTrees[key];
+  }
+}
+
+function respawnWorldTrees(){
+  // Remove all existing world trees then re-spawn with GLB models
+  if (state._worldTrees){
+    for (const m of Object.values(state._worldTrees)){
+      scene.remove(m);
+      m.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    }
+    state._worldTrees = {};
+  }
+  if (state._outerTrees){
+    for (const m of state._outerTrees){
+      scene.remove(m);
+      m.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    }
+    state._outerTrees = [];
+  }
+  clearDesertZone();
+  clearBeachZone();
+  clearShips();
+  state._desertZone = null;
+  state._forestZone = null;
+  _forestCenter = null;
+  spawnWorldTrees();
+  spawnDesertZone();
+  spawnBeachZone();
+  setTimeout(() => spawnShips(), 200);
+}
+
+// Legacy decorative trees (floating, outside grid) kept for park buildings
 function spawnDecorativeTrees(){
   const treeGroup = new THREE.Group();
   for (let i = 0; i < 90; i++){
@@ -897,7 +1489,6 @@ function spawnDecorativeTrees(){
   state.treeGroup = treeGroup;
 }
 
-// Called once GLB templates are ready -- replace procedural trees with GLB
 function respawnDecorativeTrees(){
   if (state.treeGroup){
     scene.remove(state.treeGroup);
@@ -905,8 +1496,6 @@ function respawnDecorativeTrees(){
   }
   spawnDecorativeTrees();
 }
-
-// spawnDecorativeTrees() disabled -- trees placed manually in-game
 
 // Cloud particles -- procedural spheres
 const cloudGroup = new THREE.Group();
@@ -2657,7 +3246,7 @@ const _NIGHT_LIGHT_CFG = {
 
 function addBuildingNightLight(bEntry){
   const key = bEntry.type;
-  const noLight = ['road','railway','water_tile','bulldoze'];
+  const noLight = ['road','railway','water_tile','bulldoze','axe','hunt'];
   if(noLight.includes(key) || !bEntry.mesh) return;
   const cfg = _NIGHT_LIGHT_CFG[key];
 
@@ -2715,6 +3304,33 @@ function footprintCenterWorld(gx, gz, size){
 function canPlaceAt(key, gx, gz){
   if (!inBounds(gx,gz)) return false;
   if (key === 'bulldoze') return state.grid[gx][gz].type != null;
+  if (key === 'hunt'){
+    // Allow click anywhere ground is hittable; actual range check in huntDeer()
+    return true;
+  }
+  if (key === 'axe'){
+    // In-grid tree
+    if (inBounds(gx, gz)){
+      const gridKey = `${gx}_${gz}`;
+      if (state._worldTrees && state._worldTrees[gridKey]) return true;
+    }
+    // Outer tree or desert object nearby
+    const wp = gridToWorld(gx, gz);
+    const rangeSq = (TILE * 2.5) * (TILE * 2.5);
+    if (state._outerTrees){
+      for (const m of state._outerTrees){
+        const dx = m.position.x - wp.x, dz = m.position.z - wp.z;
+        if (dx*dx + dz*dz < rangeSq) return true;
+      }
+    }
+    if (state._desertObjects){
+      for (const obj of state._desertObjects){
+        const dx = obj.wx - wp.x, dz = obj.wz - wp.z;
+        if (dx*dx + dz*dz < rangeSq) return true;
+      }
+    }
+    return false;
+  }
   const size = getSize(key);
   // all tiles in footprint must be in-bounds and empty
   for (let dx=0; dx<size; dx++){
@@ -2924,6 +3540,7 @@ function placeBuilding(key, gx, gz){
     for (let dx=0; dx<size; dx++){
       for (let dz=0; dz<size; dz++){
         const nx=gx+dx, nz=gz+dz;
+        clearWorldTreeAt(nx, nz); // remove any tree on this tile
         state.grid[nx][nz] = { type:key, mesh:(dx===0&&dz===0)?mesh:null, rotation, origin:{gx,gz} };
       }
     }
@@ -2944,7 +3561,10 @@ function placeBuilding(key, gx, gz){
   for (let dx=0; dx<size; dx++){
     for (let dz=0; dz<size; dz++){
       const nx=gx+dx, nz=gz+dz;
-      if (inBounds(nx,nz)) state.grid[nx][nz] = { type:key, mesh:null, rotation, origin:{gx,gz}, underConstruction:true };
+      if (inBounds(nx,nz)){
+        clearWorldTreeAt(nx, nz); // remove any tree on this tile
+        state.grid[nx][nz] = { type:key, mesh:null, rotation, origin:{gx,gz}, underConstruction:true };
+      }
     }
   }
 
@@ -3522,7 +4142,371 @@ gltfLoader.load('./model/car/kereta-api.glb', (gltf) => {
   _trainGlbPending = false;
 });
 
-// ===================== SLUM SYSTEM =====================
+// ===================== DESERT ENV GLB MODELS =====================
+let _desertMountTemplate = null;
+let _desertRockTemplate  = null;
+let _desertTreeTemplate  = null;
+let _desertGlbPending    = 3;
+
+function _normalizeEnvGlb(root, targetH){
+  for (let pass = 0; pass < 2; pass++){
+    const box = new THREE.Box3().setFromObject(root);
+    const sz = box.getSize(new THREE.Vector3());
+    if (sz.y < 0.001) break;
+    root.scale.multiplyScalar(targetH / sz.y);
+  }
+  const box2 = new THREE.Box3().setFromObject(root);
+  const center = box2.getCenter(new THREE.Vector3());
+  root.position.x -= center.x;
+  root.position.z -= center.z;
+  root.position.y -= box2.min.y;
+  root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+}
+
+gltfLoader.load('./model/env/desert_mount.glb', (gltf) => {
+  _normalizeEnvGlb(gltf.scene, 16);
+  _desertMountTemplate = gltf.scene;
+  if (--_desertGlbPending === 0 && state.running) spawnDesertZone();
+  console.log('[desert] mount loaded');
+}, undefined, err => { console.warn('[desert] mount failed', err); if(--_desertGlbPending===0 && state.running) spawnDesertZone(); });
+
+gltfLoader.load('./model/env/desert_rock.glb', (gltf) => {
+  _normalizeEnvGlb(gltf.scene, 1.4);
+  _desertRockTemplate = gltf.scene;
+  if (--_desertGlbPending === 0 && state.running) spawnDesertZone();
+  console.log('[desert] rock loaded');
+}, undefined, err => { console.warn('[desert] rock failed', err); if(--_desertGlbPending===0 && state.running) spawnDesertZone(); });
+
+gltfLoader.load('./model/env/desert_tree.glb', (gltf) => {
+  _normalizeEnvGlb(gltf.scene, 2.2);
+  _desertTreeTemplate = gltf.scene;
+  if (--_desertGlbPending === 0 && state.running) spawnDesertZone();
+  console.log('[desert] tree loaded');
+}, undefined, err => { console.warn('[desert] tree failed', err); if(--_desertGlbPending===0 && state.running) spawnDesertZone(); });
+
+// ===================== BEACH ENV GLB MODELS =====================
+let _beachTreeTemplate = null;
+let _beachGlbReady     = false;
+
+gltfLoader.load('./model/env/beach_tree.glb', (gltf) => {
+  _normalizeEnvGlb(gltf.scene, 3.5);
+  _beachTreeTemplate = gltf.scene;
+  _beachGlbReady = true;
+  console.log('[beach] palm tree loaded');
+  if (state.running) spawnBeachZone();
+}, undefined, err => {
+  console.warn('[beach] palm tree failed', err);
+  _beachGlbReady = true;
+  if (state.running) spawnBeachZone();
+});
+
+// ===================== SHIP SYSTEM =====================
+// Ships patrol the ocean area near the beach zone, slowly back and forth
+
+const SHIP_MODELS = [
+  { path: './model/ship/boat.glb',           h: 1.6 },
+  { path: './model/ship/penangkap-ikan.glb', h: 2.0 },
+  { path: './model/ship/sampan.glb',         h: 1.0 },
+];
+const SHIP_COUNT    = 5;
+const SHIP_SPEED    = rand(1.5, 3.0); // world units per second
+
+let _shipTemplates  = [];  // loaded GLB scenes
+let _shipGlbLoaded  = 0;
+
+if (!state.ships) state.ships = [];
+
+for (const sm of SHIP_MODELS){
+  gltfLoader.load(sm.path, (gltf) => {
+    _normalizeEnvGlb(gltf.scene, sm.h);
+    _shipTemplates.push(gltf.scene);
+    _shipGlbLoaded++;
+    console.log(`[ship] loaded ${sm.path}`);
+    if (_shipGlbLoaded >= SHIP_MODELS.length && state.running) spawnShips();
+  }, undefined, err => {
+    console.warn(`[ship] failed ${sm.path}`, err);
+    _shipGlbLoaded++;
+    if (_shipGlbLoaded >= SHIP_MODELS.length && state.running) spawnShips();
+  });
+}
+
+function spawnShips(){
+  clearShips();
+  if (!state._beachZone) return;
+  const bz   = state._beachZone;
+  const side = bz.side;
+
+  for (let i = 0; i < SHIP_COUNT; i++){
+    if (!_shipTemplates.length) break;
+    const tmpl = _shipTemplates[Math.floor(Math.random() * _shipTemplates.length)];
+    const mesh = tmpl.clone(true);
+    mesh.scale.multiplyScalar(rand(0.9, 1.4));
+    mesh.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = false; }});
+
+    // Position ship inside ocean plane
+    const along = rand(bz.shipMinAlong, bz.shipMaxAlong);
+    const depth  = rand(bz.shipMinDepth, bz.shipMaxDepth);
+    let wx, wz;
+    if (bz.onZ){ wx = along; wz = depth; }
+    else        { wx = depth; wz = along; }
+
+    const moveDir  = Math.random() < 0.5 ? 1 : -1;
+    const facingY  = bz.onZ
+      ? (moveDir > 0 ? 0 : Math.PI)                    // moving along X
+      : (moveDir > 0 ? Math.PI / 2 : -Math.PI / 2);   // moving along Z
+
+    mesh.position.set(wx, 0, wz);
+    mesh.rotation.y = facingY;
+    scene.add(mesh);
+
+    state.ships.push({
+      mesh, wx, wz,
+      speed:     rand(2.0, 4.0),
+      moveDir,
+      side,
+      onZ:       bz.onZ,
+      patrolMin: bz.shipMinAlong,
+      patrolMax: bz.shipMaxAlong,
+      depthFixed: depth,   // stays at this depth unless drifting
+      bobTimer:  rand(0, Math.PI * 2),
+    });
+  }
+  console.log(`[ship] spawned ${state.ships.length} on side ${side}`);
+}
+
+
+function clearShips(){
+  if (!state.ships) return;
+  for (const s of state.ships){
+    scene.remove(s.mesh);
+    s.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+  }
+  state.ships = [];
+}
+
+function updateShips(dt){
+  if (!state.ships || !state.ships.length) return;
+  for (const s of state.ships){
+    if (!s.mesh) continue;
+
+    // Wave bobbing
+    s.bobTimer += dt * 0.9;
+    const baseY = 0.05 + Math.sin(s.bobTimer) * 0.08 + Math.sin(s.bobTimer * 1.7) * 0.04;
+    s.mesh.position.y    = baseY;
+    s.mesh.rotation.z    =  Math.sin(s.bobTimer * 0.7)  * 0.045;
+    s.mesh.rotation.x    =  Math.sin(s.bobTimer * 0.55) * 0.030;
+
+    // Move along the shore
+    if (s.onZ){
+      s.wx += s.moveDir * s.speed * dt;
+      if (s.wx > s.patrolMax){ s.wx = s.patrolMax; s.moveDir = -1; s.mesh.rotation.y = Math.PI; }
+      else if (s.wx < s.patrolMin){ s.wx = s.patrolMin; s.moveDir = 1; s.mesh.rotation.y = 0; }
+      s.mesh.position.x = s.wx;
+      s.mesh.position.z = s.depthFixed;
+    } else {
+      s.wz += s.moveDir * s.speed * dt;
+      if (s.wz > s.patrolMax){ s.wz = s.patrolMax; s.moveDir = -1; s.mesh.rotation.y = -Math.PI/2; }
+      else if (s.wz < s.patrolMin){ s.wz = s.patrolMin; s.moveDir = 1; s.mesh.rotation.y = Math.PI/2; }
+      s.mesh.position.x = s.depthFixed;
+      s.mesh.position.z = s.wz;
+    }
+
+    // Distance culling
+    const camDx = s.mesh.position.x - camTarget.x, camDz = s.mesh.position.z - camTarget.z;
+    s.mesh.visible = (camDx*camDx + camDz*camDz) <= 200*200;
+  }
+}
+
+
+// Each deer is tracked; hunt tool removes them with a small money reward
+
+const DEER_COUNT_MAX  = 14;
+const DEER_MONEY_REWARD = 200;  // Rp reward per deer hunted
+let _deerGLB         = null;    // loaded template gltf (not added to scene)
+let _deerAnimations  = [];      // AnimationClip[] from GLB
+let _deerReady       = false;
+let _deerGLTF        = null;    // raw gltf reference for SkeletonUtils.clone
+
+gltfLoader.load('./model/animal/deer.glb', (gltf) => {
+  const root = gltf.scene;
+  // Normalize height to ~0.35 world unit (visible at city scale, ~half building height)
+  const box0 = new THREE.Box3().setFromObject(root);
+  const sz0  = box0.getSize(new THREE.Vector3());
+  if (sz0.y > 0.001) root.scale.multiplyScalar(0.35 / sz0.y);
+
+  const box2 = new THREE.Box3().setFromObject(root);
+  const c = box2.getCenter(new THREE.Vector3());
+  root.position.x -= c.x; root.position.z -= c.z;
+  root.position.y -= box2.min.y;
+  root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+  _deerGLB = root;
+  _deerGLTF = gltf;
+  _deerAnimations = gltf.animations || [];
+  _deerReady = true;
+  console.log('[deer] loaded, animations:', _deerAnimations.map(a=>a.name).join(', '));
+  // Spawn deer now if game is running
+  if (state.running && _forestCenter) spawnDeer();
+}, undefined, err => { console.warn('[deer] failed', err); _deerReady = true; });
+
+// state.deers = [{ mesh, mixer, walkAction, eatAction, state:'walk'|'eat', stateTimer, wx, wz, dir, speed }]
+if (!state.deers) state.deers = [];
+
+function makeDeerMesh(){
+  if (!_deerGLB || !_deerGLTF) return null;
+  // SkeletonUtils.clone properly rebinds skeleton bones for skinned meshes
+  const clone = SkeletonUtils.clone(_deerGLB);
+  const s = rand(0.85, 1.15);
+  clone.scale.multiplyScalar(s); // multiply, not set — preserve normalization scale
+  clone.rotation.y = rand(0, Math.PI * 2);
+  clone.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; }});
+
+  // Mixer must target the clone root
+  const mixer = new THREE.AnimationMixer(clone);
+  let walkAction = null, eatAction = null;
+
+  for (const clip of _deerAnimations){
+    const lc = clip.name.toLowerCase();
+    if (lc.includes('walk')){
+      walkAction = mixer.clipAction(clip);
+      walkAction.loop = THREE.LoopRepeat;
+    } else if (lc.includes('eat')){
+      eatAction = mixer.clipAction(clip);
+      eatAction.loop = THREE.LoopRepeat;
+    }
+  }
+  // Fallback: if no named anims, just use first two clips
+  if (!walkAction && _deerAnimations.length > 0){
+    walkAction = mixer.clipAction(_deerAnimations[0]);
+    walkAction.loop = THREE.LoopRepeat;
+  }
+  if (!eatAction && _deerAnimations.length > 1){
+    eatAction = mixer.clipAction(_deerAnimations[1]);
+    eatAction.loop = THREE.LoopRepeat;
+  }
+
+  return { clone, mixer, walkAction, eatAction };
+}
+
+function spawnDeer(){
+  if (!_deerReady || !_forestCenter) return;
+  if (state.deers.length >= DEER_COUNT_MAX) return;
+
+  const toSpawn = Math.min(DEER_COUNT_MAX - state.deers.length, randInt(6, 10));
+  const fc      = _forestCenter;
+  const spread  = FOREST_ZONE_SIZE * 1.6;
+
+  for (let i = 0; i < toSpawn; i++){
+    const result = makeDeerMesh();
+    if (!result) break;
+    const { clone, mixer, walkAction, eatAction } = result;
+
+    // 70% inside/near forest, 30% wandering a bit further
+    const close = Math.random() < 0.7;
+    const angle = rand(0, Math.PI * 2);
+    const dist  = close ? rand(1, spread * 0.7) : rand(spread * 0.7, spread);
+    const wx = clamp(fc.x + Math.cos(angle) * dist, -HALF + 2, HALF - 2);
+    const wz = clamp(fc.z + Math.sin(angle) * dist, -HALF + 2, HALF - 2);
+    clone.position.set(wx, 0, wz);
+    scene.add(clone);
+
+    // Start animation
+    const startState = Math.random() < 0.5 ? 'eat' : 'walk';
+    if (startState === 'eat' && eatAction)  { eatAction.reset().play(); }
+    else if (walkAction)                     { walkAction.reset().play(); }
+
+    state.deers.push({
+      mesh: clone, mixer, walkAction, eatAction,
+      state: startState,
+      stateTimer: rand(3, 10),
+      wx, wz,
+      dirAngle: rand(0, Math.PI * 2),
+      speed: rand(1.8, 3.0),
+    });
+  }
+  console.log(`[deer] spawned ${toSpawn}, total ${state.deers.length}`);
+}
+
+function updateDeers(dt){
+  if (!state.deers || !state.deers.length) return;
+  const fc = _forestCenter;
+
+  for (let i = state.deers.length - 1; i >= 0; i--){
+    const d = state.deers[i];
+    if (!d.mesh) continue;
+
+    // Update animation mixer
+    d.mixer.update(dt);
+
+    // State timer countdown
+    d.stateTimer -= dt;
+    if (d.stateTimer <= 0){
+      // Switch state
+      d.state = d.state === 'walk' ? 'eat' : 'walk';
+      d.stateTimer = d.state === 'eat' ? rand(4, 12) : rand(3, 8);
+      d.dirAngle = rand(0, Math.PI * 2); // new walk direction
+
+      // Crossfade animations
+      if (d.state === 'eat'){
+        if (d.walkAction) d.walkAction.fadeOut(0.4);
+        if (d.eatAction)  d.eatAction.reset().fadeIn(0.4).play();
+      } else {
+        if (d.eatAction)  d.eatAction.fadeOut(0.4);
+        if (d.walkAction) d.walkAction.reset().fadeIn(0.4).play();
+      }
+    }
+
+    // Move if walking
+    if (d.state === 'walk'){
+      // Wander within forest zone (return to forest if too far)
+      const homeX = fc ? fc.x : 0, homeZ = fc ? fc.z : 0;
+      const distFromHome = Math.sqrt((d.wx-homeX)**2 + (d.wz-homeZ)**2);
+      if (distFromHome > FOREST_ZONE_SIZE * 1.6){
+        // Steer back toward forest
+        d.dirAngle = Math.atan2(homeZ - d.wz, homeX - d.wx) + rand(-0.3, 0.3);
+      } else {
+        // Slight random drift
+        d.dirAngle += rand(-0.15, 0.15);
+      }
+
+      const moveX = Math.cos(d.dirAngle) * d.speed * dt;
+      const moveZ = Math.sin(d.dirAngle) * d.speed * dt;
+      d.wx = clamp(d.wx + moveX, -HALF + 1, HALF - 1);
+      d.wz = clamp(d.wz + moveZ, -HALF + 1, HALF - 1);
+      d.mesh.position.set(d.wx, 0, d.wz);
+      d.mesh.rotation.y = -d.dirAngle + Math.PI / 2;
+    }
+
+    // Distance culling
+    const camDx = d.wx - camTarget.x, camDz = d.wz - camTarget.z;
+    d.mesh.visible = (camDx*camDx + camDz*camDz) <= 110*110;
+  }
+}
+
+function huntDeer(wx, wz){
+  if (!state.deers || !state.deers.length) return false;
+  const rangeSq = 8 * 8; // hunt range: 8 world units
+  let closest = null, closestDist = rangeSq;
+  for (const d of state.deers){
+    const dx = d.wx - wx, dz = d.wz - wz;
+    const dist = dx*dx + dz*dz;
+    if (dist < closestDist){ closestDist = dist; closest = d; }
+  }
+  if (!closest) return false;
+
+  // Remove deer
+  scene.remove(closest.mesh);
+  closest.mixer.stopAllAction();
+  closest.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+  state.deers = state.deers.filter(d => d !== closest);
+
+  // Reward
+  state.money += DEER_MONEY_REWARD;
+  renderTopBar();
+  notify('🦌 Rusa Ditangkap!', `+Rp${DEER_MONEY_REWARD.toLocaleString('id-ID')} dari berburu rusa!`, 'success');
+  Audio.playNotify && Audio.playNotify('success');
+  return true;
+}
+
 // Slum buildings appear after mission level 10, every 2 in-game hours
 // They raise pollution, drain money, and can only be cleared via Acel cutscene
 
@@ -5349,6 +6333,89 @@ function recalcStats(){
   state._taxBase = tax;
 }
 
+// -------------------- DISTANCE CULLING --------------------
+// Hides objects far from camera every 20 frames — zero geometry changes, just visibility toggle
+let _cullFrameCount = 0;
+
+const CULL_DIST = {
+  worldTree:   70,   // small in-grid trees
+  outerTree:   90,   // forest / out-of-grid trees
+  desertObj:   95,   // desert rocks & trees
+  slum:        80,   // slum meshes
+  vehicle:     100,  // cars / taxi
+  pedestrian:  55,   // NPCs on foot
+  cloud:       999,  // clouds always visible
+};
+
+function updateDistanceCulling(){
+  if (!state.running) return;
+  const cx = camTarget.x, cz = camTarget.z;
+
+  function d2(ox, oz){ const dx=ox-cx, dz=oz-cz; return dx*dx+dz*dz; }
+
+  // In-grid world trees
+  if (state._worldTrees){
+    const threshSq = CULL_DIST.worldTree * CULL_DIST.worldTree;
+    for (const m of Object.values(state._worldTrees)){
+      m.visible = d2(m.position.x, m.position.z) <= threshSq;
+    }
+  }
+
+  // Outer / forest trees
+  if (state._outerTrees){
+    const threshSq = CULL_DIST.outerTree * CULL_DIST.outerTree;
+    for (const m of state._outerTrees){
+      m.visible = d2(m.position.x, m.position.z) <= threshSq;
+    }
+  }
+
+  // Desert objects (rocks, desert trees)
+  if (state._desertObjects){
+    const threshSq = CULL_DIST.desertObj * CULL_DIST.desertObj;
+    for (const obj of state._desertObjects){
+      obj.mesh.visible = d2(obj.wx, obj.wz) <= threshSq;
+    }
+  }
+  if (state._desertMesh){
+    const dz = state._desertZone;
+    if (dz){
+      const threshSq = (CULL_DIST.desertObj + dz.radius) * (CULL_DIST.desertObj + dz.radius);
+      state._desertMesh.visible = d2(dz.cx, dz.cz) <= threshSq;
+    }
+  }
+
+  // Beach palm trees
+  if (state._beachTrees){
+    const threshSq = 120 * 120;
+    for (const t of state._beachTrees){
+      t.mesh.visible = d2(t.wx, t.wz) <= threshSq;
+    }
+  }
+  if (state._beachMesh){
+    state._beachMesh.visible = d2(state._beachMesh.position.x, state._beachMesh.position.z) <= 150 * 150;
+  }
+
+  // Slums
+  if (state.slums){
+    const threshSq = CULL_DIST.slum * CULL_DIST.slum;
+    for (const s of state.slums){
+      if (s.mesh) s.mesh.visible = d2(s.mesh.position.x, s.mesh.position.z) <= threshSq;
+    }
+  }
+
+  // Vehicles
+  const vThreshSq = CULL_DIST.vehicle * CULL_DIST.vehicle;
+  for (const v of state.vehicles){
+    if (v.mesh) v.mesh.visible = d2(v.mesh.position.x, v.mesh.position.z) <= vThreshSq;
+  }
+
+  // Pedestrians
+  const pThreshSq = CULL_DIST.pedestrian * CULL_DIST.pedestrian;
+  for (const p of state.pedestrians){
+    if (p.mesh) p.mesh.visible = d2(p.mesh.position.x, p.mesh.position.z) <= pThreshSq;
+  }
+}
+
 function gameTick(dt){
   if (state.paused || state.speed===0) return;
   const mult = state.speed;
@@ -5535,6 +6602,10 @@ function gameTick(dt){
     c.position.x += dt * mult * 0.5;
     if (c.position.x > HALF+10) c.position.x = -HALF-10;
   });
+
+  // Distance-based culling (runs every 20 frames to save CPU)
+  _cullFrameCount = (_cullFrameCount + 1) % 20;
+  if (_cullFrameCount === 0) updateDistanceCulling();
 }
 
 // -------------------- DISASTERS --------------------
@@ -5612,6 +6683,24 @@ function getMouseGrid(e){
   return g;
 }
 
+// Like getMouseGrid but allows out-of-bounds tiles (used by axe tool for desert objects)
+function getMouseGridAny(e){
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX-rect.left)/rect.width)*2 - 1;
+  mouse.y = -((e.clientY-rect.top)/rect.height)*2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hit = raycaster.intersectObject(ground);
+  if (!hit.length) return null;
+  const p = hit[0].point;
+  const g = worldToGrid(p.x, p.z);
+  // Clamp to valid GRID range
+  g.x = Math.max(0, Math.min(GRID-1, g.x));
+  g.z = Math.max(0, Math.min(GRID-1, g.z));
+  // Store world position too for distance checks
+  g.wx = p.x; g.wz = p.z;
+  return g;
+}
+
 canvas.addEventListener('mousedown', e=>{
   mouseDownButton = e.button;
   lastMouse.x = e.clientX; lastMouse.y = e.clientY;
@@ -5627,13 +6716,14 @@ canvas.addEventListener('mousedown', e=>{
   else if (e.button === 1) isPanning = true;
   else if (e.button === 0){
     if (state.selected){
-      const g = getMouseGrid(e);
+      // Axe & hunt use getMouseGridAny so they can reach objects outside land bounds
+      const g = (state.selected === 'axe' || state.selected === 'hunt') ? getMouseGridAny(e) : getMouseGrid(e);
       if (!g) return;
       const key = state.selected;
-      // Roads & bulldoze: instant placement (drag-friendly)
-      if (key === 'road' || key === 'bulldoze'){
+      // Roads & bulldoze & axe & hunt: instant (drag-friendly)
+      if (key === 'road' || key === 'bulldoze' || key === 'axe' || key === 'hunt'){
         isDragging = true;
-        applyTool(g.x, g.z);
+        applyTool(g.x, g.z, g);
         return;
       }
       // Two-click confirm mode
@@ -5687,14 +6777,15 @@ canvas.addEventListener('mousemove', e=>{
       const def = BUILDINGS[state.selected];
       const can = canPlaceAt(state.selected, g.x, g.z);
       cursorMesh.material.color.setHex(can ? 0xffdd00 : 0xef4444);
-      const isInstant = state.selected==='road' || state.selected==='bulldoze' || state.selected==='railway' || state.selected==='water_tile';
+      const isInstant = state.selected==='road' || state.selected==='bulldoze' || state.selected==='railway' || state.selected==='water_tile' || state.selected==='axe' || state.selected==='hunt';
       const tip = isInstant
         ? `${def.icon} ${def.name} -- $${def.cost}`
         : `${def.icon} ${def.name} (${size}x${size}) -- $${def.cost}  |  click to preview`;
       showCursorTip(e.clientX, e.clientY, tip);
     } else hideCursorTip();
     if (isDragging && state.selected){
-      applyTool(g.x, g.z);
+      const dragG = (state.selected === 'axe' || state.selected === 'hunt') ? (getMouseGridAny(e) || g) : g;
+      applyTool(dragG.x, dragG.z, dragG);
     }
   } else {
     cursorMesh.visible = false;
@@ -5727,9 +6818,84 @@ canvas.addEventListener('wheel', e=>{
   updateCamera();
 }, { passive:false });
 
-function applyTool(gx, gz){
+function applyTool(gx, gz, gFull){
   if (state.selected === 'bulldoze') bulldoze(gx, gz);
+  else if (state.selected === 'axe')  cutTree(gx, gz, gFull);
+  else if (state.selected === 'hunt') {
+    const wx = (gFull && gFull.wx != null) ? gFull.wx : gridToWorld(gx, gz).x;
+    const wz = (gFull && gFull.wz != null) ? gFull.wz : gridToWorld(gx, gz).z;
+    huntDeer(wx, wz);
+  }
   else placeBuilding(state.selected, gx, gz);
+}
+
+function cutTree(gx, gz, gFull){
+  // World position: use gFull.wx/wz if available (from getMouseGridAny), else derive from grid
+  const wx = (gFull && gFull.wx != null) ? gFull.wx : gridToWorld(gx, gz).x;
+  const wz = (gFull && gFull.wz != null) ? gFull.wz : gridToWorld(gx, gz).z;
+  let cut = false;
+
+  // Cut in-grid tree (only if in bounds)
+  if (inBounds(gx, gz)){
+    const gridKey = `${gx}_${gz}`;
+    if (state._worldTrees && state._worldTrees[gridKey]){
+      clearWorldTreeAt(gx, gz);
+      cut = true;
+    }
+  }
+
+  // Cut nearest outer/forest tree within range
+  if (state._outerTrees){
+    let closest = null, closestDist = (TILE * 2.0) * (TILE * 2.0);
+    for (const m of state._outerTrees){
+      const ddx = m.position.x - wx, ddz = m.position.z - wz;
+      const d2 = ddx*ddx + ddz*ddz;
+      if (d2 < closestDist){ closestDist = d2; closest = m; }
+    }
+    if (closest){
+      scene.remove(closest);
+      closest.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+      state._outerTrees = state._outerTrees.filter(m => m !== closest);
+      cut = true;
+    }
+  }
+
+  // Cut nearest desert tree or rock within range
+  if (!cut && state._desertObjects && state._desertObjects.length){
+    let closest = null, closestDist = (TILE * 2.5) * (TILE * 2.5);
+    for (const obj of state._desertObjects){
+      const ddx = obj.wx - wx, ddz = obj.wz - wz;
+      const d2 = ddx*ddx + ddz*ddz;
+      if (d2 < closestDist){ closestDist = d2; closest = obj; }
+    }
+    if (closest){
+      scene.remove(closest.mesh);
+      closest.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+      state._desertObjects = state._desertObjects.filter(o => o !== closest);
+      cut = true;
+    }
+  }
+
+  // Cut nearest beach palm tree within range
+  if (!cut && state._beachTrees && state._beachTrees.length){
+    let closest = null, closestDist = (TILE * 3.0) * (TILE * 3.0);
+    for (const t of state._beachTrees){
+      const ddx = t.wx - wx, ddz = t.wz - wz;
+      const d2 = ddx*ddx + ddz*ddz;
+      if (d2 < closestDist){ closestDist = d2; closest = t; }
+    }
+    if (closest){
+      scene.remove(closest.mesh);
+      closest.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+      state._beachTrees = state._beachTrees.filter(t => t !== closest);
+      cut = true;
+    }
+  }
+
+  if (cut){
+    Audio.playBulldoze && Audio.playBulldoze();
+  }
+  return cut;
 }
 
 function selectBuildingAt(gx, gz){
@@ -6449,6 +7615,8 @@ function doExpandLand(toSize, cost){
   if (state._landBorderMesh){ scene.remove(state._landBorderMesh); state._landBorderMesh = null; }
   renderTopBar();
   renderMinimap();
+  // Spawn trees on newly unlocked land
+  setTimeout(() => spawnWorldTrees(), 100);
   notify('🏞️ Tanah Dibeli!', `Wilayah kota kini ${toSize}×${toSize} petak!`, 'success');
   Audio.playLevelUp();
 }
@@ -6817,9 +7985,25 @@ function startGame(sandbox, loaded=false){
     state._wiwiIntroduced = false;
   }
   state.running = true;
+  state._worldTrees = {};
+  state.deers = [];
+  state._beachTrees = [];
+  state.ships = [];
 
   // Initialize citizen life simulation after loading buildings
   setTimeout(() => CitizenSim.generate(), 500);
+  // Spawn default trees on empty land tiles (slight delay for grid to settle)
+  setTimeout(() => {
+    spawnWorldTrees();
+    setTimeout(spawnDesertZone, 50);
+    setTimeout(() => {
+      if (_beachGlbReady) spawnBeachZone();
+      // Spawn ships after beach zone is ready
+      setTimeout(() => { if (_shipGlbLoaded >= SHIP_MODELS.length) spawnShips(); }, 200);
+    }, 100);
+    // Spawn deer near forest after trees settle
+    setTimeout(() => { if (_deerReady) spawnDeer(); }, 400);
+  }, 300);
 
   // Switch to gameplay music
   Audio.playGameplayMusic();
@@ -7040,6 +8224,56 @@ function buildHUD(){
       recalcStats();
       renderMinimap();
       cheatFeedback(`🧹 ${count} rumah kumuh dihapus!`, 'success');
+    },
+    'tebang pohon': () => {
+      respawnWorldTrees === undefined
+        ? cheatFeedback('⚠️ Sistem pohon belum siap', 'error')
+        : (() => {
+            if (!state._worldTrees){ cheatFeedback('✅ Tidak ada pohon!','success'); return; }
+            const count = Object.keys(state._worldTrees).length;
+            for (const m of Object.values(state._worldTrees)){
+              scene.remove(m);
+              m.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+            }
+            state._worldTrees = {};
+            cheatFeedback(`🌲 ${count} pohon ditebang!`, 'success');
+          })();
+    },
+    'tanam pohon': () => {
+      spawnWorldTrees();
+      const count = Object.keys(state._worldTrees || {}).length;
+      cheatFeedback(`🌳 Pohon ditanam! (total: ${count})`, 'success');
+    },
+    'spawn rusa': () => {
+      if (!_deerReady){
+        cheatFeedback('⏳ Model rusa belum selesai dimuat...', 'warn'); return;
+      }
+      // Spawn deer at random empty tiles inside land bounds
+      const { min, max } = getLandBounds();
+      const mid = Math.floor((min + max) / 2);
+      const half = Math.floor((max - min) / 4);
+      let spawned = 0;
+      for (let attempt = 0; attempt < 30 && spawned < 3; attempt++){
+        const gx = mid + randInt(-half, half);
+        const gz = mid + randInt(-half, half);
+        if (!inBounds(gx, gz)) continue;
+        if (state.grid[gx][gz].type !== null) continue;
+        const result = makeDeerMesh();
+        if (!result) break;
+        const { clone, mixer, walkAction, eatAction } = result;
+        const wp = gridToWorld(gx, gz);
+        clone.position.set(wp.x, 0, wp.z);
+        scene.add(clone);
+        if (walkAction) walkAction.play();
+        state.deers.push({
+          mesh: clone, mixer, walkAction, eatAction,
+          state: 'walk', stateTimer: rand(3, 8),
+          wx: wp.x, wz: wp.z,
+          dirAngle: rand(0, Math.PI*2), speed: rand(1.8, 3.2),
+        });
+        spawned++;
+      }
+      cheatFeedback(`🦌 ${spawned} rusa muncul di kota!`, 'success');
     },
     'bahagia': () => {
       state.happiness = 100;
@@ -7291,6 +8525,27 @@ function renderMinimap(){
   const ctx = c.getContext('2d');
   const w = c.width, h = c.height;
   ctx.fillStyle = '#0b1320'; ctx.fillRect(0,0,w,h);
+  if (_forestCenter) {
+    const fmx = (_forestCenter.x + HALF) / (GRID*TILE) * w;
+    const fmz = (_forestCenter.z + HALF) / (GRID*TILE) * h;
+    const fmr = (20 / (GRID*TILE)) * Math.min(w, h);
+    const fGrad = ctx.createRadialGradient(fmx, fmz, 0, fmx, fmz, fmr);
+    fGrad.addColorStop(0, 'rgba(34,139,34,0.55)');
+    fGrad.addColorStop(1, 'rgba(34,139,34,0)');
+    ctx.fillStyle = fGrad;
+    ctx.beginPath(); ctx.arc(fmx, fmz, fmr, 0, Math.PI*2); ctx.fill();
+  }
+  if (state._desertZone) {
+    const { cx, cz, radius } = state._desertZone;
+    const dmx = (cx + HALF) / (GRID*TILE) * w;
+    const dmz = (cz + HALF) / (GRID*TILE) * h;
+    const dmr = (radius / (GRID*TILE)) * Math.min(w, h);
+    const dGrad = ctx.createRadialGradient(dmx, dmz, 0, dmx, dmz, dmr);
+    dGrad.addColorStop(0, 'rgba(210,180,100,0.6)');
+    dGrad.addColorStop(1, 'rgba(210,180,100,0)');
+    ctx.fillStyle = dGrad;
+    ctx.beginPath(); ctx.arc(dmx, dmz, dmr, 0, Math.PI*2); ctx.fill();
+  }
   const cellW = w / GRID;
   const cellH = h / GRID;
   const { min: lmin, max: lmax } = getLandBounds();
@@ -7344,6 +8599,19 @@ function renderMinimap(){
     ctx.setLineDash([3,3]);
     ctx.strokeRect(bx, bz, bw, bh);
     ctx.setLineDash([]);
+  }
+  const legends = [];
+  if (_forestCenter) legends.push({ color: '#228B22', label: '🌲 Hutan' });
+  if (state._desertZone) legends.push({ color: '#D2A855', label: '🏜️ Gurun' });
+  if (state._beachZone)  legends.push({ color: '#40C8E0', label: '🏖️ Pantai' });
+  if (legends.length) {
+    ctx.font = '7px monospace';
+    legends.forEach((l, i) => {
+      ctx.fillStyle = l.color;
+      ctx.fillRect(4, h - 14 - i*11, 7, 7);
+      ctx.fillStyle = '#eee';
+      ctx.fillText(l.label, 14, h - 8 - i*11);
+    });
   }
 }
 
@@ -7474,6 +8742,9 @@ function loop(now){
   updateDestructions(dt);
   updateWaterAnimation(dt);
   updateWaterMixers(dt);
+  if (state.running) updateDeers(dt);
+  if (state.running) updateShips(dt);
+  updateBeachWaves(dt);
 
   uiTick += dt;
   if (uiTick > 0.25){
