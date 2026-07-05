@@ -123,9 +123,9 @@ function pxImg(key,size=24){const rows=_IC[key];if(!rows)return'❓';const uri='
 
 const BUILDINGS = {
   road:        { name:'Road',          icon:pxImg('road'),        cost:50,   cat:'road',   color:0x5a6070, h:0.05, size:1 },
-  res_low:     { name:'Low Density',   icon:pxImg('res_low'),     cost:200,  cat:'res',    color:0xffdd88, accent:0xdd8800, h:1.2, jobs:0, homes:4, power:1, water:1, tax:8, size:1 },
-  res_med:     { name:'Med Density',   icon:pxImg('res_med'),     cost:600,  cat:'res',    color:0xff8fab, accent:0xcc2255, h:2.6, homes:12, power:3, water:3, tax:22, size:2 },
-  res_high:    { name:'High Density',  icon:pxImg('res_high'),    cost:1800, cat:'res',    color:0x88ccff, accent:0x1155aa, h:5.0, homes:40, power:8, water:8, tax:75, size:2 },
+  res_low:     { name:'Low Density',   icon:pxImg('res_low'),     cost:200,  cat:'res',    color:0xffdd88, accent:0xdd8800, h:1.2, jobs:0, homes:15, power:1, water:1, tax:8, size:1 },
+  res_med:     { name:'Med Density',   icon:pxImg('res_med'),     cost:600,  cat:'res',    color:0xff8fab, accent:0xcc2255, h:2.6, homes:30, power:3, water:3, tax:22, size:2 },
+  res_high:    { name:'High Density',  icon:pxImg('res_high'),    cost:1800, cat:'res',    color:0x88ccff, accent:0x1155aa, h:5.0, homes:60, power:8, water:8, tax:75, size:2 },
   com_shop:    { name:'Shop',          icon:pxImg('com_shop'),    cost:300,  cat:'com',    color:0x55ddcc, accent:0x117766, h:1.4, jobs:6, power:2, water:1, tax:25, size:1 },
   com_mall:    { name:'Mall',          icon:pxImg('com_mall'),    cost:1500, cat:'com',    color:0x55aaff, accent:0x1144bb, h:2.2, jobs:25, power:6, water:3, tax:90, size:3 },
   ind_factory: { name:'Factory',       icon:pxImg('ind_factory'), cost:800,  cat:'ind',    color:0xffaa44, accent:0xaa5500, h:1.6, jobs:20, power:6, water:4, tax:60, pollution:5, size:2 },
@@ -1464,6 +1464,7 @@ function respawnWorldTrees(){
   clearDesertZone();
   clearBeachZone();
   clearShips();
+  despawnUFO();
   state._desertZone = null;
   state._forestZone = null;
   _forestCenter = null;
@@ -4200,6 +4201,132 @@ gltfLoader.load('./model/env/beach_tree.glb', (gltf) => {
   if (state.running) spawnBeachZone();
 });
 
+// ===================== UFO SYSTEM =====================
+let _ufoTemplate = null;
+let _ufoGlbReady = false;
+
+gltfLoader.load('./model/egg/ufo.glb', (gltf) => {
+  const root = gltf.scene;
+  _normalizeEnvGlb(root, 0.5); // tinggi ~1.4 unit, sesuaikan kalau kegedean/kekecilan
+  root.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = false; }});
+  _ufoTemplate = root;
+  _ufoGlbReady = true;
+  console.log('[ufo] loaded');
+}, undefined, err => {
+  console.warn('[ufo] failed to load, pakai fallback prosedural', err);
+  _ufoGlbReady = true;
+});
+
+if (!state.ufo) state.ufo = null;
+if (typeof state._ufoPrevNightT === 'undefined') state._ufoPrevNightT = 0;
+
+const UFO_SPAWN_CHANCE  = 0.5;   // peluang muncul tiap tengah malam (50%)
+const UFO_MIN_DURATION  = 180;   // 3 menit (detik real, mengikuti speed game)
+const UFO_MAX_DURATION  = 600;   // 10 menit
+
+function makeUfoMesh(){
+  if (_ufoTemplate) return _ufoTemplate.clone(true);
+  // Fallback kalau GLB gagal load
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), mat(0x88ccdd));
+  body.scale.set(1, 0.3, 1);
+  g.add(body);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI*2, 0, Math.PI/2), glassMat(0x224444, 0.7));
+  dome.position.y = 0.15;
+  g.add(dome);
+  for (let i=0; i<8; i++){
+    const a = (i/8)*Math.PI*2;
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.08,6,6), emissiveMat(0xffee66, 1.2));
+    light.position.set(Math.cos(a)*0.9, -0.1, Math.sin(a)*0.9);
+    g.add(light);
+  }
+  return g;
+}
+
+function spawnUFO(forceDuration){
+  if (state.ufo) return; // sudah ada UFO aktif
+
+  const dz = state._desertZone;
+  const baseX = dz ? dz.cx : (HALF - 30);
+  const baseZ = dz ? dz.cz : (HALF - 30);
+
+  const mesh = makeUfoMesh();
+  const hoverHeight = rand(12, 18);
+  mesh.position.set(baseX + rand(-15,15), hoverHeight, baseZ + rand(-15,15));
+  mesh.rotation.y = rand(0, Math.PI*2);
+  scene.add(mesh);
+
+  // Beam cahaya turun ke tanah
+  const beamGeo = new THREE.ConeGeometry(1.2, hoverHeight*0.9, 12, 1, true);
+  const beamMat = new THREE.MeshBasicMaterial({ color:0x88ffcc, transparent:true, opacity:0.12, side:THREE.DoubleSide, depthWrite:false });
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  beam.position.y = -hoverHeight*0.45;
+  beam.rotation.x = Math.PI;
+  mesh.add(beam);
+
+  // Lampu kecil berkedip
+  const blinkLight = new THREE.PointLight(0x66ffcc, 1.2, 20, 2);
+  blinkLight.position.y = -0.2;
+  mesh.add(blinkLight);
+
+  const duration = forceDuration || rand(UFO_MIN_DURATION, UFO_MAX_DURATION);
+
+  state.ufo = {
+    mesh, beam, blinkLight,
+    baseX, baseZ, hoverHeight,
+    life: duration,
+    bobTimer: rand(0, Math.PI*2),
+    driftAngle: rand(0, Math.PI*2),
+    driftRadius: rand(10, 25),
+    driftSpeed: rand(0.05, 0.15),
+  };
+
+  notify('👽 UFO Terlihat!', `Sesuatu yang aneh melayang dekat gunung gurun... (~${Math.round(duration/60)} menit)`, 'warn');
+  console.log(`[ufo] spawned, durasi ${Math.round(duration)}s`);
+}
+
+function despawnUFO(){
+  if (!state.ufo) return;
+  scene.remove(state.ufo.mesh);
+  state.ufo.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+  state.ufo = null;
+  console.log('[ufo] despawned');
+}
+
+function updateUFO(dt){
+  if (!state.ufo) return;
+  const u = state.ufo;
+  u.life -= dt;
+  if (u.life <= 0){ despawnUFO(); return; }
+
+  u.bobTimer += dt * 1.2;
+  u.driftAngle += dt * u.driftSpeed;
+  u.mesh.position.x = u.baseX + Math.cos(u.driftAngle) * u.driftRadius;
+  u.mesh.position.z = u.baseZ + Math.sin(u.driftAngle) * u.driftRadius;
+  u.mesh.position.y = u.hoverHeight + Math.sin(u.bobTimer) * 1.2;
+  u.mesh.rotation.y += dt * 0.4;
+  u.blinkLight.intensity = 0.8 + Math.sin(u.bobTimer * 6) * 0.6;
+
+  const dx = u.mesh.position.x - camTarget.x, dz = u.mesh.position.z - camTarget.z;
+  u.mesh.visible = (dx*dx + dz*dz) <= 220*220;
+}
+
+// Cek "tengah malam" tiap tick -- pakai DN.nightT biar akurat, deteksi saat melewati 0.4 (=00:00)
+function tickUFOMidnight(){
+  if (!state.running) return;
+  if (DN.isNight){
+    const cur = DN.nightT;
+    if (state._ufoPrevNightT < 0.4 && cur >= 0.4){
+      if (!state.ufo && Math.random() < UFO_SPAWN_CHANCE){
+        spawnUFO();
+      }
+    }
+    state._ufoPrevNightT = cur;
+  } else {
+    state._ufoPrevNightT = 0;
+  }
+}
+
 // ===================== SHIP SYSTEM =====================
 // Ships patrol the ocean area near the beach zone, slowly back and forth
 
@@ -6426,6 +6553,9 @@ function gameTick(dt){
   if (!Array.isArray(state.slums)) state.slums = [];
   if (typeof state._slumTimer === 'undefined') state._slumTimer = 0;
   tickSlums(dt, mult);
+  //ufo
+  tickUFOMidnight();
+  updateUFO(dt * mult);
 
   // every "day" (3 real seconds at 1x)
   if (state.tickSinceLastDay >= 3){
@@ -8110,6 +8240,17 @@ function buildHUD(){
       cheatFeedback(`⚡ ${count} building${count!==1?'s':''} instantly built!`, 'success');
       Audio.playLevelUp();
     },
+    'panggil ufo': () => {
+    if (state.ufo){ cheatFeedback('👽 UFO sudah ada di kota!', 'warn'); return; }
+    spawnUFO(120); // durasi 2 menit biar cepat dites
+    cheatFeedback('👽 UFO dipanggil buat testing!', 'success');
+    Audio.playNotify('warn');
+  },
+  'usir ufo': () => {
+    if (!state.ufo){ cheatFeedback('✅ Tidak ada UFO saat ini', 'success'); return; }
+    despawnUFO();
+    cheatFeedback('👽 UFO pergi diusir!', 'success');
+  },
     'bro am': () => {
       const targets = state.buildings.filter(b => {
         const size = getSize(b.type);
