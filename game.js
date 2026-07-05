@@ -1244,9 +1244,9 @@ function makeBeachSandTexture(side){
   const stopsInland = [
     [0.00, 'rgba(178,172,122,0)'],      // transparent inland edge
     [0.12, 'rgba(198,192,140,0.32)'],   // sand/grass blend
-    [0.28, 'rgba(238,222,162,0.88)'],   // dry sand
-    [0.46, 'rgba(242,228,172,0.95)'],   // dry sand peak
-    [0.60, 'rgba(200,205,148,0.85)'],   // wet sand
+    [0.28, 'rgba(43, 182, 224, 0.88)'],   // dry sand
+    [0.46, 'rgba(32, 174, 235, 0.95)'],   // dry sand peak
+    [0.60, 'rgba(45, 168, 225, 0.85)'],   // wet sand
     [0.72, 'rgba(82,208,198,0.82)'],    // shallow water turquoise
     [0.86, 'rgba(28,158,210,0.78)'],    // shallow blue
     [0.96, 'rgba(18,118,178,0.60)'],    // deeper water
@@ -1317,13 +1317,13 @@ function spawnBeachZone(){
   const onZ   = (bestSide === 'pz' || bestSide === 'nz');
 
   const SHORE_LEN   = HALF * 2 + 10;
-  const SAND_DEPTH  = 16;   // sand strip depth (overlaps into map by OVERLAP)
-  const OCEAN_DEPTH = 32;   // ocean plane depth (starts at HALF, for ships)
-  const OVERLAP     = 5;    // units the sand goes inside the map
+  const SAND_DEPTH  = 40;   // strip pasir, sedikit masuk ke rumput
+  const OCEAN_DEPTH = 10;   // laut memanjang KELUAR dari tepi map (bukan void, jadi aman diperbesar)
+  const OVERLAP     = 2;    // pasir menjorok sedikit ke dalam rumput biar transisi halus
 
-  // Sand center: straddles the HALF boundary
-  const sandC = sign * (HALF + SAND_DEPTH / 2 - OVERLAP);
-  // Ocean center: from HALF+OVERLAP outward
+  // Pasir berpusat di sekitar tepi map (HALF), sedikit tumpang tindih ke dalam
+  const sandC  = sign * (HALF + SAND_DEPTH / 2 - OVERLAP);
+  // Laut mulai TEPAT di tepi map, memanjang keluar (area tanpa rumput)
   const oceanC = sign * (HALF + OVERLAP + OCEAN_DEPTH / 2);
 
   const beachGroup = new THREE.Group();
@@ -1362,9 +1362,7 @@ function spawnBeachZone(){
   scene.add(beachGroup);
   state._beachMesh = beachGroup;
 
-  // Ship patrol bounds: ships sail within the ocean plane
-  // Along axis: parallel to shore (X for pz/nz, Z for px/nx)
-  // Depth: perpendicular to shore, within [HALF+OVERLAP, HALF+OVERLAP+OCEAN_DEPTH]
+  // Ship patrol bounds -- tetap dekat garis pantai, tapi masih di area laut yang solid
   const depthMin = sign * (HALF + OVERLAP + 2);
   const depthMax = sign * (HALF + OVERLAP + OCEAN_DEPTH - 2);
   state._beachZone = {
@@ -4256,23 +4254,40 @@ function spawnUFO(forceDuration){
   mesh.rotation.y = rand(0, Math.PI*2);
   scene.add(mesh);
 
-  // Beam cahaya turun ke tanah
-  const beamGeo = new THREE.ConeGeometry(1.2, hoverHeight*0.9, 12, 1, true);
-  const beamMat = new THREE.MeshBasicMaterial({ color:0x88ffcc, transparent:true, opacity:0.12, side:THREE.DoubleSide, depthWrite:false });
+  // Beam visual -- cone transparan dengan additive blending biar menyatu dengan cahaya di tanah
+  const beamGeo = new THREE.ConeGeometry(1.4, hoverHeight*0.9, 16, 1, true);
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0x88ffcc, transparent: true, opacity: 0.18,
+    side: THREE.DoubleSide, depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
   const beam = new THREE.Mesh(beamGeo, beamMat);
   beam.position.y = -hoverHeight*0.45;
   beam.rotation.x = Math.PI;
   mesh.add(beam);
 
-  // Lampu kecil berkedip
+  // Lampu kecil berkedip (di badan UFO)
   const blinkLight = new THREE.PointLight(0x66ffcc, 1.2, 20, 2);
   blinkLight.position.y = -0.2;
   mesh.add(blinkLight);
 
+  // SpotLight -- cahaya sorot BENERAN yang menerangi tanah/gedung di bawah UFO
+  const spot = new THREE.SpotLight(0x88ffcc, 3.5, hoverHeight * 2.2, Math.PI/9, 0.4, 1.2);
+  spot.position.set(0, 0, 0); // relatif ke mesh (di badan UFO)
+  scene.add(spot);
+
+  const spotTarget = new THREE.Object3D();
+  scene.add(spotTarget);
+  spot.target = spotTarget;
+
+  // Posisi awal target tepat di bawah UFO
+  spotTarget.position.set(mesh.position.x, 0, mesh.position.z);
+  spot.position.copy(mesh.position);
+
   const duration = forceDuration || rand(UFO_MIN_DURATION, UFO_MAX_DURATION);
 
   state.ufo = {
-    mesh, beam, blinkLight,
+    mesh, beam, blinkLight, spot, spotTarget,
     baseX, baseZ, hoverHeight,
     life: duration,
     bobTimer: rand(0, Math.PI*2),
@@ -4289,6 +4304,8 @@ function despawnUFO(){
   if (!state.ufo) return;
   scene.remove(state.ufo.mesh);
   state.ufo.mesh.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+  if (state.ufo.spot) scene.remove(state.ufo.spot);
+  if (state.ufo.spotTarget) scene.remove(state.ufo.spotTarget);
   state.ufo = null;
   console.log('[ufo] despawned');
 }
@@ -4307,8 +4324,18 @@ function updateUFO(dt){
   u.mesh.rotation.y += dt * 0.4;
   u.blinkLight.intensity = 0.8 + Math.sin(u.bobTimer * 6) * 0.6;
 
+  // SpotLight ikut posisi UFO, target selalu tepat di tanah di bawahnya
+  if (u.spot && u.spotTarget){
+    u.spot.position.copy(u.mesh.position);
+    u.spotTarget.position.set(u.mesh.position.x, 0, u.mesh.position.z);
+    // Sedikit flicker biar terasa "hidup"
+    u.spot.intensity = 3.0 + Math.sin(u.bobTimer * 4) * 0.8;
+  }
+
   const dx = u.mesh.position.x - camTarget.x, dz = u.mesh.position.z - camTarget.z;
-  u.mesh.visible = (dx*dx + dz*dz) <= 220*220;
+  const visible = (dx*dx + dz*dz) <= 220*220;
+  u.mesh.visible = visible;
+  if (u.spot) u.spot.visible = visible;
 }
 
 // Cek "tengah malam" tiap tick -- pakai DN.nightT biar akurat, deteksi saat melewati 0.4 (=00:00)
@@ -4331,22 +4358,20 @@ function tickUFOMidnight(){
 // Ships patrol the ocean area near the beach zone, slowly back and forth
 
 const SHIP_MODELS = [
-  { path: './model/ship/boat.glb',           h: 1.6 },
-  { path: './model/ship/penangkap-ikan.glb', h: 2.0 },
-  { path: './model/ship/sampan.glb',         h: 1.0 },
+  { path: './model/ship/boat.glb',           h: 1.6, rotY: 0 },
+  { path: './model/ship/penangkap-ikan.glb', h: 2.0, rotY: 0 },
+  { path: './model/ship/sampan.glb',         h: 1.0, rotY: 0 },
 ];
 const SHIP_COUNT    = 5;
 const SHIP_SPEED    = rand(1.5, 3.0); // world units per second
 
-let _shipTemplates  = [];  // loaded GLB scenes
+let _shipTemplates  = [];  // [{ scene, rotY }]
 let _shipGlbLoaded  = 0;
-
-if (!state.ships) state.ships = [];
 
 for (const sm of SHIP_MODELS){
   gltfLoader.load(sm.path, (gltf) => {
     _normalizeEnvGlb(gltf.scene, sm.h);
-    _shipTemplates.push(gltf.scene);
+    _shipTemplates.push({ scene: gltf.scene, rotY: sm.rotY || 0 });
     _shipGlbLoaded++;
     console.log(`[ship] loaded ${sm.path}`);
     if (_shipGlbLoaded >= SHIP_MODELS.length && state.running) spawnShips();
@@ -4365,14 +4390,19 @@ function spawnShips(){
 
   for (let i = 0; i < SHIP_COUNT; i++){
     if (!_shipTemplates.length) break;
-    const tmpl = _shipTemplates[Math.floor(Math.random() * _shipTemplates.length)];
-    const mesh = tmpl.clone(true);
+    const picked = _shipTemplates[Math.floor(Math.random() * _shipTemplates.length)];
+    const inner = picked.scene.clone(true);
+    const corrector = new THREE.Group();
+    corrector.rotation.y = picked.rotY;
+    corrector.add(inner);
+    const mesh = new THREE.Group();
+    mesh.add(corrector);
     mesh.scale.multiplyScalar(rand(0.9, 1.4));
     mesh.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = false; }});
 
     // Position ship inside ocean plane
     const along = rand(bz.shipMinAlong, bz.shipMaxAlong);
-    const depth  = rand(bz.shipMinDepth, bz.shipMaxDepth);
+    const depth  = rand(bz.shipDepthMin, bz.shipDepthMax);
     let wx, wz;
     if (bz.onZ){ wx = along; wz = depth; }
     else        { wx = depth; wz = along; }
@@ -6934,9 +6964,9 @@ canvas.addEventListener('mousemove', e=>{
     camTarget.z -= (dx*Math.sin(camAngle) + dy*Math.cos(camAngle)) * f;
     // Clamp pan to the current world size
     const worldHalf = (state.landSize * TILE) / 2 + 10;
-    camTarget.x = clamp(camTarget.x, -worldHalf, worldHalf);
-    camTarget.z = clamp(camTarget.z, -worldHalf, worldHalf);
-    updateCamera();
+    camTarget.x = clamp(camTarget.x, -HALF, HALF);
+  camTarget.z = clamp(camTarget.z, -HALF, HALF);
+  updateCamera();
   }
   lastMouse.x = e.clientX; lastMouse.y = e.clientY;
 });
